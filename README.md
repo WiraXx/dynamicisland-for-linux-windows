@@ -47,7 +47,7 @@ git pull && ./install.sh
 | Geste | Effet |
 |---|---|
 | **Clic gauche** sur la pilule | Déplie le panneau de contrôle |
-| **Clic ailleurs** ou **Échap** | Referme le panneau |
+| **Clic n'importe où ailleurs** ou **Échap** | Referme le panneau |
 | **Clic droit** sur la pilule | Ouvre les réglages |
 | **Molette** sur la pilule | Règle le volume |
 | **Survol** | La pilule réagit légèrement |
@@ -58,7 +58,10 @@ git pull && ./install.sh
   affiche l'icône de l'application, le titre et le message, puis se referme. Les bannières
   natives de GNOME sont masquées pour ne pas voir la notification deux fois.
 - **Musique** — dès qu'un lecteur joue (Spotify, Firefox, VLC, Rhythmbox… tout ce qui parle
-  MPRIS), la pilule affiche la pochette et un égaliseur animé.
+  MPRIS), la pilule affiche la **pochette** et les boutons **précédent / lecture-pause /
+  suivant**, sans changer de taille. Au changement de morceau, le titre s'affiche quelques
+  secondes avec un égaliseur animé, puis la pilule se rétracte. Durée réglable, 0 pour ne
+  jamais afficher le titre.
 - **Panneau de contrôle** (au clic) :
   - heure et date ;
   - lecteur : pochette, titre, artiste, précédent / lecture-pause / suivant, barre de
@@ -87,7 +90,7 @@ ouverte et regarder la pilule bouger pendant que tu ajustes.
 | **Position** | Ancrage (6 bords), décalage horizontal et vertical, écran cible |
 | **Taille** | Largeur et hauteur de la pilule, arrondi des coins, largeur et hauteur maximale du panneau |
 | **Apparence** | Couleur de fond, opacité, couleur du texte, bordure, vitesse des animations, réaction au survol |
-| **Comportement** | Notifications (durée, masquage des bannières GNOME), lecteur, luminosité, molette-volume, masquage en plein écran, masquage au repos |
+| **Comportement** | Notifications (durée, masquage des bannières GNOME), lecteur, durée du titre dans la pilule, luminosité, molette-volume, masquage en plein écran, masquage au repos |
 
 Un bouton **Réinitialiser** en bas de la page « Comportement » remet tout d'origine.
 
@@ -99,6 +102,8 @@ Un bouton **Réinitialiser** en bas de la page « Comportement » remet tout d'o
 - **La pilule est trop grande / trop petite** : *Taille → Pilule au repos*. Pour une pilule
   parfaitement arrondie, mets l'arrondi à la moitié de la hauteur (hauteur 30 → arrondi 15).
 - **Tu ne veux la voir que quand il se passe quelque chose** : *Comportement → Masquer au repos*.
+- **Le titre du morceau élargit la pilule trop longtemps** : *Comportement → Titre du morceau
+  dans la pilule*, mets 0 pour n'avoir que la pochette et les boutons.
 
 ---
 

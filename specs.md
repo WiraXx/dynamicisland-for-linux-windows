@@ -23,7 +23,7 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | État | Déclenché par | Contenu |
 |---|---|---|
 | `IDLE` | rien à afficher | pilule vide |
-| `COMPACT` | un lecteur MPRIS est présent | pochette + titre + égaliseur |
+| `COMPACT` | un lecteur MPRIS est présent | pochette + précédent/lecture-pause/suivant ; au changement de morceau, titre + égaliseur pendant `compact-title-duration` secondes |
 | `NOTIFICATION` | notification reçue | icône + titre + message, pendant `notification-timeout` secondes |
 | `EXPANDED` | clic sur la pilule | panneau de contrôle complet |
 
@@ -32,6 +32,8 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | Fonction | Rôle | Entrées | Sorties |
 |---|---|---|---|
 | `_buildViews()` | Construit les trois vues et les empile dans l'île | — | — |
+| `_setCompactMode(showTitle)` | Bascule la pilule entre « titre + égaliseur » et « pochette + boutons » | booléen | réanime la géométrie si l'île est compacte |
+| `_flashCompactTitle()` | Montre le titre le temps réglé puis rétracte la pilule | — | ne fait rien si la durée vaut 0 |
 | `_monitor()` | Écran sur lequel s'affiche l'île | réglage `monitor` | objet moniteur ; l'écran principal si l'index est invalide |
 | `_targetSize(state, monitor)` | Taille visée, calculée depuis le contenu réel | état, moniteur | `[largeur, hauteur]`, bornées par l'écran et les réglages |
 | `_targetPosition(w, h, monitor)` | Coin haut-gauche visé | taille, moniteur | `[x, y]` selon `position`, `offset-x`, `offset-y` |
@@ -49,7 +51,9 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | `_onButtonPress(event)` | Clics | événement | gauche = déplier, droit = réglages ; les clics dans le panneau ouvert ne le referment pas |
 | `_onScroll(event)` | Molette | événement | volume ±5 % si `scroll-volume` |
 | `_onHover()` | Survol | — | léger agrandissement si `hover-peek` |
-| `_grabInput()` / `_releaseGrab()` | Focus clavier le temps du panneau | — | permet `Échap` et la fermeture au clic extérieur |
+| `_grabInput()` / `_releaseGrab()` | Focus clavier le temps du panneau | — | permet `Échap` |
+| `_addCatcher()` / `_removeCatcher()` | Calque transparent glissé sous l'île pendant que le panneau est ouvert | — | un clic n'importe où ailleurs referme, même sans focus clavier ; retiré à la fermeture, au masquage en plein écran et à la destruction |
+| `_onKeyPress(event)` | Clavier sur l'île | événement | `Échap` referme le panneau |
 | `_onCapturedEvent(event)` | Filtre les événements pendant que le panneau est ouvert | événement | ferme sur `Échap` ou sur un clic hors de l'île |
 | `_onDestroy()` | Ménage | — | déconnecte tout, détruit les trois modules |
 
@@ -105,6 +109,7 @@ animation ne reste bloquée, et la zone cliquable suit la transformation.
 |---|---|
 | `AlbumArt(size)` | Pochette arrondie ; `setArt(url)` accepte un fichier local, repli sur une icône générique pour les pochettes distantes |
 | `Equalizer(barCount)` | Barres animées ; `setPlaying(bool)` démarre ou fige l'animation |
+| `MediaControls(media, options)` | Précédent / lecture-pause / suivant en icônes du thème ; `update(info)` change l'icône de lecture et grise ce que le lecteur ne sait pas faire ; partagé entre la pilule (petites icônes) et le panneau |
 | `SliderRow(iconName)` | Icône + curseur ; signaux `value-changed` et `icon-clicked` ; `setValue()` ne réémet rien (pas de boucle) |
 | `MediaCard(media)` | Carte du lecteur ; `update()` recopie l'état, `setPolling(bool)` rafraîchit la progression à 1 Hz |
 | `NotificationRow(record)` | Entrée d'historique ; le clic active la notification puis émet `activated` |
@@ -160,6 +165,7 @@ changement est appliqué à chaud par l'île.
 | `border-width` / `border-color` | entier / chaîne | 0 / `#3c3c3c` | bordure |
 | `animation-speed` | réel | 1.0 | diviseur des durées d'animation |
 | `notification-timeout` | entier | 5 | durée d'affichage d'une notification |
+| `compact-title-duration` | entier | 3 | secondes d'affichage du titre dans la pilule (0 = jamais) |
 | `hide-native-banners` | booléen | vrai | masque les bannières GNOME |
 | `show-notifications` / `show-media` / `show-brightness` | booléen | vrai | modules affichés |
 | `hover-peek` | booléen | vrai | agrandissement au survol |

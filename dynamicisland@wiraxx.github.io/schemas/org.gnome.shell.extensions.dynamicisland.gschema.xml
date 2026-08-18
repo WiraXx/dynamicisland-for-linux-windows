@@ -100,6 +100,11 @@
       <default>true</default>
       <summary>Afficher les notifications dans l'île</summary>
     </key>
+    <key name="compact-title-duration" type="i">
+      <default>3</default>
+      <range min="0" max="30"/>
+      <summary>Durée d'affichage du titre dans la pilule (0 = jamais)</summary>
+    </key>
     <key name="show-media" type="b">
       <default>true</default>
       <summary>Afficher le lecteur multimédia</summary>

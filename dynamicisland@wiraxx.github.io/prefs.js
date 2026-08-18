@@ -224,7 +224,10 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
         modules.add(spinRow(settings, 'notification-timeout', 'Durée d’affichage',
             'En secondes', 1, 60));
         modules.add(switchRow(settings, 'show-media', 'Lecteur multimédia',
-            'Pochette et contrôles du lecteur en cours'));
+            'Pochette et boutons de lecture dans la pilule'));
+        modules.add(spinRow(settings, 'compact-title-duration', 'Titre du morceau dans la pilule',
+            'Secondes d’affichage au changement de morceau, avant que la pilule ne se rétracte. 0 pour ne jamais l’afficher',
+            0, 30));
         modules.add(switchRow(settings, 'show-brightness', 'Luminosité',
             'Masqué automatiquement si l’écran ne se pilote pas'));
         p.add(modules);

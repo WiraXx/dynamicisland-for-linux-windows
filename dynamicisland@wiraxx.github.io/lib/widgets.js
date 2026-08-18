@@ -175,6 +175,52 @@ export const SliderRow = GObject.registerClass({
     }
 });
 
+/** Précédent / lecture-pause / suivant, en icônes du thème. */
+export const MediaControls = GObject.registerClass(
+class MediaControls extends St.BoxLayout {
+    _init(media, {iconSize = 16, styleClass = 'di-media-controls', highlightPlay = true} = {}) {
+        super._init({style_class: styleClass, y_align: Clutter.ActorAlign.CENTER});
+
+        this._media = media;
+        this._iconSize = iconSize;
+
+        this._previous = this._button('media-skip-backward-symbolic', () => this._media.previous());
+        this._play = this._button('media-playback-start-symbolic', () => this._media.playPause());
+        this._next = this._button('media-skip-forward-symbolic', () => this._media.next());
+        if (highlightPlay)
+            this._play.add_style_class_name('di-play-button');
+
+        this.add_child(this._previous);
+        this.add_child(this._play);
+        this.add_child(this._next);
+    }
+
+    _button(iconName, callback) {
+        const button = new St.Button({
+            style_class: 'di-icon-button',
+            child: new St.Icon({icon_name: iconName, icon_size: this._iconSize}),
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        button.connect('clicked', () => callback());
+        return button;
+    }
+
+    /** Recopie l'état du lecteur : icône de lecture et boutons disponibles. */
+    update(info) {
+        if (!info)
+            return;
+
+        this._play.child.icon_name = info.status === 'Playing'
+            ? 'media-playback-pause-symbolic'
+            : 'media-playback-start-symbolic';
+
+        this._previous.reactive = info.canGoPrevious;
+        this._previous.opacity = info.canGoPrevious ? 255 : 100;
+        this._next.reactive = info.canGoNext;
+        this._next.opacity = info.canGoNext ? 255 : 100;
+    }
+});
+
 /** Carte du lecteur : pochette, titre, transport et progression. */
 export const MediaCard = GObject.registerClass(
 class MediaCard extends St.BoxLayout {
@@ -207,15 +253,8 @@ class MediaCard extends St.BoxLayout {
         info.add_child(this._artist);
         top.add_child(info);
 
-        const controls = hbox({style_class: 'di-media-controls', y_align: Clutter.ActorAlign.CENTER});
-        this._prev = this._makeButton('media-skip-backward-symbolic', () => this._media.previous());
-        this._play = this._makeButton('media-playback-start-symbolic', () => this._media.playPause());
-        this._next = this._makeButton('media-skip-forward-symbolic', () => this._media.next());
-        this._play.add_style_class_name('di-play-button');
-        controls.add_child(this._prev);
-        controls.add_child(this._play);
-        controls.add_child(this._next);
-        top.add_child(controls);
+        this._controls = new MediaControls(this._media);
+        top.add_child(this._controls);
 
         this.add_child(top);
 
@@ -241,15 +280,6 @@ class MediaCard extends St.BoxLayout {
         this.connect('destroy', () => this.setPolling(false));
     }
 
-    _makeButton(iconName, callback) {
-        const button = new St.Button({
-            style_class: 'di-icon-button',
-            child: new St.Icon({icon_name: iconName, icon_size: 16}),
-        });
-        button.connect('clicked', () => callback());
-        return button;
-    }
-
     /** Recopie l'état du lecteur dans la carte. */
     update() {
         const info = this._media.info;
@@ -261,13 +291,7 @@ class MediaCard extends St.BoxLayout {
         this._artist.visible = Boolean(this._artist.text);
         this._art.setArt(info.artUrl);
 
-        this._play.child.icon_name = info.status === 'Playing'
-            ? 'media-playback-pause-symbolic'
-            : 'media-playback-start-symbolic';
-        this._prev.reactive = info.canGoPrevious;
-        this._next.reactive = info.canGoNext;
-        this._prev.opacity = info.canGoPrevious ? 255 : 100;
-        this._next.opacity = info.canGoNext ? 255 : 100;
+        this._controls.update(info);
 
         this._length = info.length;
         this._seek.reactive = info.canSeek && info.length > 0;

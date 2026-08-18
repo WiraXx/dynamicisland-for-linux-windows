@@ -13,7 +13,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {MediaPlayer} from './mediaPlayer.js';
 import {NotificationWatcher} from './notifications.js';
 import {SystemControls} from './system.js';
-import {AlbumArt, Equalizer, MediaCard, NotificationRow, SliderRow, makeNotificationIcon} from './widgets.js';
+import {AlbumArt, Equalizer, MediaCard, MediaControls, NotificationRow, SliderRow, makeNotificationIcon} from './widgets.js';
 import {TimeoutPool, clamp, formatNow, hbox, toRgba, vbox} from './utils.js';
 
 /** Les quatre visages de l'île. */
@@ -49,6 +49,10 @@ class Island extends St.Widget {
         this._capturedId = 0;
         this._notificationTimer = 0;
         this._clockTimer = 0;
+        this._compactTitleTimer = 0;
+        this._compactShowsTitle = false;
+        this._lastTrack = null;
+        this._catcher = null;
         this._geometry = null;
 
         this.set_pivot_point(0.5, 0.5);
@@ -74,6 +78,13 @@ class Island extends St.Widget {
         });
 
         this.connect('button-press-event', (_actor, event) => this._onButtonPress(event));
+        this.connect('key-press-event', (_actor, event) => this._onKeyPress(event));
+        // Le plein écran peut masquer l'île : le panneau ne doit pas rester
+        // ouvert derrière, avec son calque de capture des clics.
+        this.connect('notify::visible', () => {
+            if (!this.visible)
+                this.collapse();
+        });
         this.connect('scroll-event', (_actor, event) => this._onScroll(event));
         this.connect('notify::hover', () => this._onHover());
         this.connect('destroy', () => this._onDestroy());
@@ -111,12 +122,60 @@ class Island extends St.Widget {
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._compactTitle.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        this._compactTitle.hide();
         view.add_child(this._compactTitle);
 
         this._equalizer = new Equalizer();
+        this._equalizer.hide();
         view.add_child(this._equalizer);
 
+        // Au repos, la pilule ne montre que la pochette et le transport :
+        // elle garde ainsi exactement la taille réglée.
+        this._compactControls = new MediaControls(this._media, {
+            iconSize: 14,
+            styleClass: 'di-compact-controls',
+            highlightPlay: false,
+        });
+        view.add_child(this._compactControls);
+
         return view;
+    }
+
+    /**
+     * Bascule entre les deux visages de la pilule : titre + égaliseur pendant
+     * quelques secondes au changement de morceau, puis pochette + boutons.
+     */
+    _setCompactMode(showTitle) {
+        this._compactShowsTitle = showTitle;
+        this._compactTitle.visible = showTitle;
+        this._equalizer.visible = showTitle;
+        this._compactControls.visible = !showTitle;
+
+        const info = this._currentMedia();
+        this._equalizer.setPlaying(showTitle && info?.status === 'Playing');
+
+        if (this._state === State.COMPACT) {
+            this._geometry = null;
+            this._applyState(State.COMPACT);
+        }
+    }
+
+    /** Montre le titre le temps réglé, puis rétracte la pilule. */
+    _flashCompactTitle() {
+        this._timeouts.remove(this._compactTitleTimer);
+        this._compactTitleTimer = 0;
+
+        const seconds = this._settings.get_int('compact-title-duration');
+        if (seconds <= 0) {
+            this._setCompactMode(false);
+            return;
+        }
+
+        this._setCompactMode(true);
+        this._compactTitleTimer = this._timeouts.add(seconds * 1000, () => {
+            this._compactTitleTimer = 0;
+            this._setCompactMode(false);
+        });
     }
 
     _buildNotificationView() {
@@ -232,7 +291,7 @@ class Island extends St.Widget {
             const [, natural] = this._compactView.get_preferred_width(-1);
             const width = clamp(natural + CONTENT_PADDING, pillWidth,
                 Math.min(Math.round(monitor.width * 0.6), 460));
-            return [width, Math.max(pillHeight, 34)];
+            return [width, pillHeight];
         }
         case State.NOTIFICATION: {
             const [, natural] = this._notificationView.get_preferred_height(panelWidth - CONTENT_PADDING);
@@ -416,12 +475,14 @@ class Island extends St.Widget {
         this._mediaCard.setPolling(this._mediaCard.visible);
         this._startClock();
         this._grabInput();
+        this._addCatcher();
     }
 
     collapse() {
         if (this._state !== State.EXPANDED)
             return;
 
+        this._removeCatcher();
         this._releaseGrab();
         this._stopClock();
         this._mediaCard.setPolling(false);
@@ -515,8 +576,19 @@ class Island extends St.Widget {
         if (info) {
             this._compactTitle.text = info.title;
             this._compactArt.setArt(info.artUrl);
-            this._equalizer.setPlaying(info.status === 'Playing');
+            this._compactControls.update(info);
+
+            const track = `${info.title}\u0000${info.artist}`;
+            if (track !== this._lastTrack) {
+                this._lastTrack = track;
+                this._flashCompactTitle();
+            } else {
+                this._equalizer.setPlaying(this._compactShowsTitle && info.status === 'Playing');
+            }
         } else {
+            this._lastTrack = null;
+            this._timeouts.remove(this._compactTitleTimer);
+            this._compactTitleTimer = 0;
             this._equalizer.setPlaying(false);
         }
 
@@ -683,6 +755,59 @@ class Island extends St.Widget {
         });
     }
 
+    // ------------------------------------------------------------- fermeture
+
+    /**
+     * Calque transparent couvrant l'écran, glissé sous l'île pendant que le
+     * panneau est ouvert : n'importe quel clic ailleurs le referme, même si la
+     * prise de focus clavier a échoué.
+     */
+    _addCatcher() {
+        if (this._catcher)
+            return;
+
+        const catcher = new St.Widget({
+            reactive: true,
+            opacity: 0,
+            x: 0,
+            y: 0,
+            width: global.stage.width,
+            height: global.stage.height,
+        });
+        catcher.connect('button-press-event', () => {
+            this.collapse();
+            return Clutter.EVENT_STOP;
+        });
+        catcher.connect('touch-event', () => {
+            this.collapse();
+            return Clutter.EVENT_STOP;
+        });
+
+        Main.layoutManager.addChrome(catcher, {
+            affectsInputRegion: true,
+            affectsStruts: false,
+            trackFullscreen: false,
+        });
+        Main.uiGroup.set_child_below_sibling(catcher, this);
+        this._catcher = catcher;
+    }
+
+    _removeCatcher() {
+        if (!this._catcher)
+            return;
+        Main.layoutManager.removeChrome(this._catcher);
+        this._catcher.destroy();
+        this._catcher = null;
+    }
+
+    _onKeyPress(event) {
+        if (event.get_key_symbol() === Clutter.KEY_Escape && this._state === State.EXPANDED) {
+            this.collapse();
+            return Clutter.EVENT_STOP;
+        }
+        return Clutter.EVENT_PROPAGATE;
+    }
+
     // ---------------------------------------------------------------- clavier
 
     /** Prend le focus le temps du panneau, pour Échap et le clic extérieur. */
@@ -743,6 +868,7 @@ class Island extends St.Widget {
     // ---------------------------------------------------------------- ménage
 
     _onDestroy() {
+        this._removeCatcher();
         this._releaseGrab();
         this._timeouts.destroy();
 

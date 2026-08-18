@@ -2,15 +2,21 @@
  * depuis les réglages ; cette feuille ne gère que la mise en forme interne.
  */
 
-.di-island {
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-}
-
 /* --- État compact (musique en cours) ------------------------------------ */
 
 .di-compact {
-    spacing: 8px;
-    padding: 0 10px;
+    spacing: 6px;
+    padding: 0 8px;
+}
+
+/* Transport dans la pilule : plus petit que dans le panneau. */
+.di-compact-controls {
+    spacing: 0;
+}
+
+.di-compact-controls .di-icon-button {
+    padding: 3px;
+    border-radius: 14px;
 }
 
 .di-compact-title {
