@@ -1,0 +1,10 @@
+# Généré par glib-compile-schemas
+*/schemas/gschemas.compiled
+
+# Archives d'extension
+*.shell-extension.zip
+
+# Fichiers d'éditeur
+*~
+.vscode/
+.idea/

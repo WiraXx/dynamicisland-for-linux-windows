@@ -1,0 +1,10 @@
+{
+  "uuid": "dynamicisland@wiraxx.github.io",
+  "name": "Dynamic Island",
+  "description": "Une Dynamic Island pour GNOME : pilule flottante au centre de l'écran qui affiche les notifications, le lecteur multimédia et la batterie, et qui s'ouvre en panneau de contrôle au clic. Position, taille, couleurs et modules entièrement réglables.",
+  "shell-version": ["45", "46", "47", "48", "49"],
+  "url": "https://github.com/WiraXx/dynamicisland-for-Linux",
+  "settings-schema": "org.gnome.shell.extensions.dynamicisland",
+  "gettext-domain": "dynamicisland",
+  "version-name": "1.0.0"
+}

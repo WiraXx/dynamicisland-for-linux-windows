@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="dynamicisland">
+  <enum id="org.gnome.shell.extensions.dynamicisland.position">
+    <value nick="top-left" value="0"/>
+    <value nick="top-center" value="1"/>
+    <value nick="top-right" value="2"/>
+    <value nick="bottom-left" value="3"/>
+    <value nick="bottom-center" value="4"/>
+    <value nick="bottom-right" value="5"/>
+  </enum>
+
+  <schema id="org.gnome.shell.extensions.dynamicisland" path="/org/gnome/shell/extensions/dynamicisland/">
+
+    <!-- Géométrie -->
+    <key name="pill-width" type="i">
+      <default>150</default>
+      <range min="40" max="1200"/>
+      <summary>Largeur de la pilule</summary>
+    </key>
+    <key name="pill-height" type="i">
+      <default>30</default>
+      <range min="12" max="200"/>
+      <summary>Hauteur de la pilule</summary>
+    </key>
+    <key name="corner-radius" type="i">
+      <default>15</default>
+      <range min="0" max="100"/>
+      <summary>Rayon des coins</summary>
+    </key>
+    <key name="position" enum="org.gnome.shell.extensions.dynamicisland.position">
+      <default>'top-center'</default>
+      <summary>Ancrage sur l'écran</summary>
+    </key>
+    <key name="offset-x" type="i">
+      <default>0</default>
+      <range min="-4000" max="4000"/>
+      <summary>Décalage horizontal</summary>
+    </key>
+    <key name="offset-y" type="i">
+      <default>2</default>
+      <range min="-4000" max="4000"/>
+      <summary>Décalage vertical</summary>
+    </key>
+    <key name="monitor" type="i">
+      <default>-1</default>
+      <range min="-1" max="16"/>
+      <summary>Écran cible (-1 = principal)</summary>
+    </key>
+    <key name="expanded-width" type="i">
+      <default>400</default>
+      <range min="200" max="1600"/>
+      <summary>Largeur du panneau déployé</summary>
+    </key>
+    <key name="expanded-max-height" type="i">
+      <default>520</default>
+      <range min="120" max="2000"/>
+      <summary>Hauteur maximale du panneau déployé</summary>
+    </key>
+
+    <!-- Apparence -->
+    <key name="background-color" type="s">
+      <default>'#000000'</default>
+      <summary>Couleur de fond</summary>
+    </key>
+    <key name="background-opacity" type="d">
+      <default>1.0</default>
+      <range min="0.1" max="1.0"/>
+      <summary>Opacité du fond</summary>
+    </key>
+    <key name="text-color" type="s">
+      <default>'#ffffff'</default>
+      <summary>Couleur du texte</summary>
+    </key>
+    <key name="border-width" type="i">
+      <default>0</default>
+      <range min="0" max="10"/>
+      <summary>Épaisseur de la bordure</summary>
+    </key>
+    <key name="border-color" type="s">
+      <default>'#3c3c3c'</default>
+      <summary>Couleur de la bordure</summary>
+    </key>
+    <key name="animation-speed" type="d">
+      <default>1.0</default>
+      <range min="0.2" max="3.0"/>
+      <summary>Vitesse des animations</summary>
+    </key>
+
+    <!-- Comportement -->
+    <key name="notification-timeout" type="i">
+      <default>5</default>
+      <range min="1" max="60"/>
+      <summary>Durée d'affichage d'une notification (s)</summary>
+    </key>
+    <key name="hide-native-banners" type="b">
+      <default>true</default>
+      <summary>Masquer les bannières natives de GNOME</summary>
+    </key>
+    <key name="show-notifications" type="b">
+      <default>true</default>
+      <summary>Afficher les notifications dans l'île</summary>
+    </key>
+    <key name="show-media" type="b">
+      <default>true</default>
+      <summary>Afficher le lecteur multimédia</summary>
+    </key>
+    <key name="show-brightness" type="b">
+      <default>true</default>
+      <summary>Afficher la luminosité</summary>
+    </key>
+    <key name="hover-peek" type="b">
+      <default>true</default>
+      <summary>Agrandir légèrement au survol</summary>
+    </key>
+    <key name="scroll-volume" type="b">
+      <default>true</default>
+      <summary>Molette sur la pilule = volume</summary>
+    </key>
+    <key name="hide-in-fullscreen" type="b">
+      <default>true</default>
+      <summary>Masquer en plein écran</summary>
+    </key>
+    <key name="auto-hide" type="b">
+      <default>false</default>
+      <summary>Masquer la pilule quand il ne se passe rien</summary>
+    </key>
+  </schema>
+</schemalist>

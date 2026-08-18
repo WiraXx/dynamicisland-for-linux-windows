@@ -1,0 +1,218 @@
+/* Le fond, la couleur du texte et l'arrondi de l'île sont appliqués en ligne
+ * depuis les réglages ; cette feuille ne gère que la mise en forme interne.
+ */
+
+.di-island {
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* --- État compact (musique en cours) ------------------------------------ */
+
+.di-compact {
+    spacing: 8px;
+    padding: 0 10px;
+}
+
+.di-compact-title {
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.di-equalizer {
+    spacing: 2px;
+}
+
+.di-equalizer-bar {
+    background-color: rgba(255, 255, 255, 0.9);
+    border-radius: 2px;
+}
+
+/* --- Pochette ----------------------------------------------------------- */
+
+.di-art {
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.di-art-small {
+    border-radius: 9px;
+}
+
+.di-art-button {
+    border-radius: 8px;
+}
+
+/* --- Bannière de notification ------------------------------------------- */
+
+.di-banner {
+    spacing: 10px;
+    padding: 8px 14px;
+}
+
+.di-banner-title {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.di-banner-body {
+    font-size: 11px;
+}
+
+/* --- Panneau déployé ---------------------------------------------------- */
+
+.di-panel {
+    spacing: 10px;
+    padding: 14px;
+}
+
+.di-header {
+    spacing: 8px;
+}
+
+.di-clock {
+    font-size: 20px;
+    font-weight: 300;
+}
+
+.di-date {
+    font-size: 11px;
+}
+
+.di-section-header {
+    spacing: 8px;
+    padding-top: 2px;
+}
+
+.di-section-title {
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.di-empty {
+    font-size: 11px;
+    padding: 12px;
+}
+
+/* --- Boutons ------------------------------------------------------------ */
+
+.di-icon-button {
+    padding: 6px;
+    border-radius: 20px;
+}
+
+.di-icon-button:hover,
+.di-icon-button:focus {
+    background-color: rgba(255, 255, 255, 0.14);
+}
+
+.di-play-button {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.di-text-button {
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 9px;
+}
+
+.di-text-button:hover,
+.di-text-button:focus {
+    background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* --- Carte média -------------------------------------------------------- */
+
+.di-media {
+    spacing: 8px;
+    padding: 8px;
+    border-radius: 14px;
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.di-media-top {
+    spacing: 10px;
+}
+
+.di-media-info {
+    spacing: 2px;
+}
+
+.di-media-title {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.di-media-artist {
+    font-size: 11px;
+}
+
+.di-media-controls {
+    spacing: 2px;
+}
+
+.di-media-progress {
+    spacing: 8px;
+    padding: 0 2px;
+}
+
+.di-media-time {
+    font-size: 9px;
+}
+
+/* --- Curseurs ----------------------------------------------------------- */
+
+.di-slider-row {
+    spacing: 10px;
+    padding: 0 2px;
+}
+
+.di-slider {
+    height: 18px;
+    min-width: 120px;
+    color: rgba(255, 255, 255, 0.95);
+    -barlevel-height: 4px;
+    -barlevel-border-width: 0;
+    -barlevel-border-color: transparent;
+    -barlevel-active-border-color: transparent;
+    -barlevel-background-color: rgba(255, 255, 255, 0.22);
+    -barlevel-active-background-color: rgba(255, 255, 255, 0.95);
+    -barlevel-overdrive-color: rgba(255, 255, 255, 0.95);
+    -barlevel-overdrive-separator-width: 0;
+    -slider-handle-radius: 6px;
+    -slider-handle-border-width: 0;
+    -slider-handle-border-color: transparent;
+}
+
+/* --- Liste de notifications --------------------------------------------- */
+
+.di-notification-list {
+    spacing: 4px;
+}
+
+.di-notification-inner {
+    spacing: 8px;
+}
+
+.di-notification-row {
+    padding: 8px 10px;
+    border-radius: 12px;
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.di-notification-row:hover,
+.di-notification-row:focus {
+    background-color: rgba(255, 255, 255, 0.14);
+}
+
+.di-notification-title {
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.di-notification-body {
+    font-size: 10px;
+}
+
+.di-notification-age {
+    font-size: 9px;
+}
