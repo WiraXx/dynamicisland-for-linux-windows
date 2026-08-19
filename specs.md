@@ -25,6 +25,7 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | `IDLE` | rien à afficher | pilule vide |
 | `COMPACT` | un lecteur MPRIS est présent | pochette + précédent/lecture-pause/suivant ; au changement de morceau, titre + égaliseur pendant `compact-title-duration` secondes |
 | `NOTIFICATION` | notification reçue | icône + titre + message, pendant `notification-timeout` secondes |
+| `OSD` | volume, micro, luminosité… | icône + jauge + pourcentage, pendant 1,5 s |
 | `EXPANDED` | clic sur la pilule | panneau de contrôle complet |
 
 ### Fonctions
@@ -51,6 +52,10 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | `_onButtonPress(event)` | Clics | événement | gauche = déplier, droit = réglages ; les clics dans le panneau ouvert ne le referment pas |
 | `_onScroll(event)` | Molette | événement | volume ±5 % si `scroll-volume` |
 | `_onHover()` | Survol | — | léger agrandissement si `hover-peek` |
+| `_installOsdHook()` / `_removeOsdHook()` | Remplace `Main.osdWindowManager.show()` le temps de la session de l'extension | — | tout OSD du shell est dérouté vers l'île ; la méthode d'origine est rendue telle quelle à la désactivation |
+| `_shouldHandleOsd()` | Décide qui affiche l'OSD | — | faux si le réglage est coupé, si l'île est masquée ou si le panneau est ouvert : l'OSD natif reprend alors la main |
+| `_showOsd(icon, label, level, maxLevel)` | Affiche l'OSD dans la pilule | paramètres bruts du shell | rétraction automatique après 1,5 s |
+| `_showVolumeOsd()` | Retour visuel de la molette, que gnome-settings-daemon n'annonce pas | — | — |
 | `_grabInput()` / `_releaseGrab()` | Focus clavier le temps du panneau | — | permet `Échap` |
 | `_addCatcher()` / `_removeCatcher()` | Calque transparent glissé sous l'île pendant que le panneau est ouvert | — | un clic n'importe où ailleurs referme, même sans focus clavier ; retiré à la fermeture, au masquage en plein écran et à la destruction |
 | `_onKeyPress(event)` | Clavier sur l'île | événement | `Échap` referme le panneau |
@@ -109,6 +114,7 @@ animation ne reste bloquée, et la zone cliquable suit la transformation.
 |---|---|
 | `AlbumArt(size)` | Pochette arrondie ; `setArt(url)` accepte un fichier local, repli sur une icône générique pour les pochettes distantes |
 | `Equalizer(barCount)` | Barres animées ; `setPlaying(bool)` démarre ou fige l'animation |
+| `OsdRow()` | Icône + jauge (`BarLevel`) + pourcentage ; `update(icon, label, level, maxLevel)` accepte les paramètres du shell tels quels, gère l'absence de jauge et la sur-amplification au-delà de 100 % |
 | `MediaControls(media, options)` | Précédent / lecture-pause / suivant en icônes du thème ; `update(info)` change l'icône de lecture et grise ce que le lecteur ne sait pas faire ; partagé entre la pilule (petites icônes) et le panneau |
 | `SliderRow(iconName)` | Icône + curseur ; signaux `value-changed` et `icon-clicked` ; `setValue()` ne réémet rien (pas de boucle) |
 | `MediaCard(media)` | Carte du lecteur ; `update()` recopie l'état, `setPolling(bool)` rafraîchit la progression à 1 Hz |
@@ -165,6 +171,7 @@ changement est appliqué à chaud par l'île.
 | `border-width` / `border-color` | entier / chaîne | 0 / `#3c3c3c` | bordure |
 | `animation-speed` | réel | 1.0 | diviseur des durées d'animation |
 | `notification-timeout` | entier | 5 | durée d'affichage d'une notification |
+| `show-osd` | booléen | vrai | volume et luminosité affichés dans l'île plutôt qu'en bas de l'écran |
 | `compact-title-duration` | entier | 3 | secondes d'affichage du titre dans la pilule (0 = jamais) |
 | `hide-native-banners` | booléen | vrai | masque les bannières GNOME |
 | `show-notifications` / `show-media` / `show-brightness` | booléen | vrai | modules affichés |

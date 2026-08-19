@@ -3,6 +3,7 @@
  */
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
@@ -13,7 +14,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {MediaPlayer} from './mediaPlayer.js';
 import {NotificationWatcher} from './notifications.js';
 import {SystemControls} from './system.js';
-import {AlbumArt, Equalizer, MediaCard, MediaControls, NotificationRow, SliderRow, makeNotificationIcon} from './widgets.js';
+import {AlbumArt, Equalizer, MediaCard, MediaControls, NotificationRow, OsdRow, SliderRow, makeNotificationIcon} from './widgets.js';
 import {TimeoutPool, clamp, formatNow, hbox, toRgba, vbox} from './utils.js';
 
 /** Les quatre visages de l'île. */
@@ -21,10 +22,12 @@ const State = {
     IDLE: 'idle',
     COMPACT: 'compact',
     NOTIFICATION: 'notification',
+    OSD: 'osd',
     EXPANDED: 'expanded',
 };
 
 const HISTORY_MAX = 5;
+const OSD_TIMEOUT = 1500;
 const CONTENT_PADDING = 28;
 const EXPANDED_RADIUS = 26;
 
@@ -50,6 +53,8 @@ class Island extends St.Widget {
         this._notificationTimer = 0;
         this._clockTimer = 0;
         this._compactTitleTimer = 0;
+        this._osdTimer = 0;
+        this._osdPatched = false;
         this._compactShowsTitle = false;
         this._lastTrack = null;
         this._catcher = null;
@@ -90,6 +95,7 @@ class Island extends St.Widget {
         this.connect('destroy', () => this._onDestroy());
 
         this._addChrome();
+        this._installOsdHook();
         this._updateStyle();
         this._onMediaChanged();
     }
@@ -99,9 +105,10 @@ class Island extends St.Widget {
     _buildViews() {
         this._compactView = this._buildCompactView();
         this._notificationView = this._buildNotificationView();
+        this._osdView = new OsdRow();
         this._expandedView = this._buildExpandedView();
 
-        this._views = [this._compactView, this._notificationView, this._expandedView];
+        this._views = [this._compactView, this._notificationView, this._osdView, this._expandedView];
         for (const view of this._views) {
             view.opacity = 0;
             view.hide();
@@ -164,6 +171,8 @@ class Island extends St.Widget {
     _flashCompactTitle() {
         this._timeouts.remove(this._compactTitleTimer);
         this._compactTitleTimer = 0;
+        this._osdTimer = 0;
+        this._osdPatched = false;
 
         const seconds = this._settings.get_int('compact-title-duration');
         if (seconds <= 0) {
@@ -174,6 +183,8 @@ class Island extends St.Widget {
         this._setCompactMode(true);
         this._compactTitleTimer = this._timeouts.add(seconds * 1000, () => {
             this._compactTitleTimer = 0;
+        this._osdTimer = 0;
+        this._osdPatched = false;
             this._setCompactMode(false);
         });
     }
@@ -293,6 +304,12 @@ class Island extends St.Widget {
                 Math.min(Math.round(monitor.width * 0.6), 460));
             return [width, pillHeight];
         }
+        case State.OSD: {
+            const [, natural] = this._osdView.get_preferred_width(-1);
+            const width = clamp(natural + CONTENT_PADDING, pillWidth,
+                Math.min(Math.round(monitor.width * 0.5), 340));
+            return [width, pillHeight];
+        }
         case State.NOTIFICATION: {
             const [, natural] = this._notificationView.get_preferred_height(panelWidth - CONTENT_PADDING);
             const height = clamp(natural + 16, Math.max(pillHeight, 56), 160);
@@ -387,6 +404,8 @@ class Island extends St.Widget {
             return this._compactView;
         case State.NOTIFICATION:
             return this._notificationView;
+        case State.OSD:
+            return this._osdView;
         case State.EXPANDED:
             return this._expandedView;
         default:
@@ -589,6 +608,8 @@ class Island extends St.Widget {
             this._lastTrack = null;
             this._timeouts.remove(this._compactTitleTimer);
             this._compactTitleTimer = 0;
+        this._osdTimer = 0;
+        this._osdPatched = false;
             this._equalizer.setPlaying(false);
         }
 
@@ -597,7 +618,7 @@ class Island extends St.Widget {
             this._mediaCard.setPolling(this._mediaCard.visible);
             this._geometry = null;
             this._applyState(State.EXPANDED);
-        } else if (this._state !== State.NOTIFICATION) {
+        } else if (this._state !== State.NOTIFICATION && this._state !== State.OSD) {
             this._setState(this._collapsedState());
         }
     }
@@ -620,6 +641,9 @@ class Island extends St.Widget {
     }
 
     _onNotification(record) {
+        this._timeouts.remove(this._osdTimer);
+        this._osdTimer = 0;
+
         if (!record.transient) {
             this._history.unshift(record);
             this._history = this._history.slice(0, HISTORY_MAX);
@@ -731,6 +755,7 @@ class Island extends St.Widget {
             return Clutter.EVENT_PROPAGATE;
 
         this._system.volume = this._system.volume + delta;
+        this._showVolumeOsd();
         return Clutter.EVENT_STOP;
     }
 
@@ -753,6 +778,78 @@ class Island extends St.Widget {
             duration: this._duration(180),
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
         });
+    }
+
+    // -------------------------------------------------------------- OSD
+
+    /**
+     * Détourne l'OSD du shell.
+     *
+     * Tout ce qui s'affiche d'ordinaire dans la pastille en bas de l'écran
+     * passe par osdWindowManager.show() : le volume et le micro (envoyés par
+     * gnome-settings-daemon sur les touches multimédia), la luminosité, la
+     * disposition clavier. On remplace cette méthode le temps de la session
+     * de l'extension, et on la rend telle quelle à la désactivation.
+     */
+    _installOsdHook() {
+        const manager = Main.osdWindowManager;
+        if (!manager || this._osdPatched)
+            return;
+
+        this._osdOriginalShow = manager.show;
+        this._osdOwnedShow = Object.prototype.hasOwnProperty.call(manager, 'show');
+
+        manager.show = (monitorIndex, icon, label, level, maxLevel) => {
+            if (this._shouldHandleOsd()) {
+                this._showOsd(icon, label, level, maxLevel);
+                return;
+            }
+            // Île masquée, panneau ouvert ou réglage coupé : l'OSD d'origine
+            // reprend la main, on ne perd jamais l'information.
+            this._osdOriginalShow.call(manager, monitorIndex, icon, label, level, maxLevel);
+        };
+        this._osdPatched = true;
+    }
+
+    _removeOsdHook() {
+        if (!this._osdPatched)
+            return;
+
+        const manager = Main.osdWindowManager;
+        if (this._osdOwnedShow)
+            manager.show = this._osdOriginalShow;
+        else
+            delete manager.show;
+
+        this._osdOriginalShow = null;
+        this._osdPatched = false;
+    }
+
+    _shouldHandleOsd() {
+        return this._settings.get_boolean('show-osd') &&
+            this.visible &&
+            this._state !== State.EXPANDED;
+    }
+
+    /** Affiche l'OSD dans la pilule, puis la rétracte. */
+    _showOsd(icon, label, level, maxLevel) {
+        this._osdView.update(icon, label, level, maxLevel);
+        this._setState(State.OSD);
+
+        this._timeouts.remove(this._osdTimer);
+        this._osdTimer = this._timeouts.add(OSD_TIMEOUT, () => {
+            this._osdTimer = 0;
+            if (this._state === State.OSD)
+                this._setState(this._collapsedState());
+        });
+    }
+
+    /** Retour visuel du volume réglé à la molette, que gsd n'annonce pas. */
+    _showVolumeOsd() {
+        if (!this._shouldHandleOsd())
+            return;
+        this._showOsd(new Gio.ThemedIcon({name: this._system.volumeIconName}),
+            null, this._system.volume, 1);
     }
 
     // ------------------------------------------------------------- fermeture
@@ -868,6 +965,7 @@ class Island extends St.Widget {
     // ---------------------------------------------------------------- ménage
 
     _onDestroy() {
+        this._removeOsdHook();
         this._removeCatcher();
         this._releaseGrab();
         this._timeouts.destroy();

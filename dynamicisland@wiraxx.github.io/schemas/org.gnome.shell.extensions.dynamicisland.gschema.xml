@@ -100,6 +100,10 @@
       <default>true</default>
       <summary>Afficher les notifications dans l'île</summary>
     </key>
+    <key name="show-osd" type="b">
+      <default>true</default>
+      <summary>Afficher le volume et la luminosité dans l'île</summary>
+    </key>
     <key name="compact-title-duration" type="i">
       <default>3</default>
       <range min="0" max="30"/>

@@ -8,6 +8,7 @@ import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
+import {BarLevel} from 'resource:///org/gnome/shell/ui/barLevel.js';
 import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 
 import {formatAge, formatClock, hbox, setVertical, vbox} from './utils.js';
@@ -322,6 +323,79 @@ class MediaCard extends St.BoxLayout {
             this._elapsed.text = formatClock(position);
             this._seek.value = Math.max(0, Math.min(1, position / this._length));
         });
+    }
+});
+
+/**
+ * Contenu d'un OSD : icône, jauge et pourcentage.
+ *
+ * Les paramètres sont ceux que GNOME passe à son propre OSD, repris tels
+ * quels — volume, luminosité, micro… tout arrive par le même chemin.
+ */
+export const OsdRow = GObject.registerClass(
+class OsdRow extends St.BoxLayout {
+    _init() {
+        super._init({style_class: 'di-osd', x_expand: true, y_expand: true});
+
+        this._icon = new St.Icon({
+            style_class: 'di-osd-icon',
+            icon_size: 18,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._label = new St.Label({
+            style_class: 'di-osd-label',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._level = new BarLevel({
+            style_class: 'di-osd-level',
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._value = new St.Label({
+            style_class: 'di-osd-value',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        this.add_child(this._icon);
+        this.add_child(this._label);
+        this.add_child(this._level);
+        this.add_child(this._value);
+    }
+
+    update(icon, label, level, maxLevel) {
+        this._icon.gicon = null;
+        if (typeof icon === 'string') {
+            this._icon.icon_name = icon;
+        } else if (icon) {
+            try {
+                this._icon.gicon = icon;
+            } catch {
+                this._icon.icon_name = 'audio-volume-high-symbolic';
+            }
+        } else {
+            this._icon.icon_name = 'audio-volume-high-symbolic';
+        }
+
+        this._label.text = label ?? '';
+        this._label.visible = Boolean(label);
+
+        const hasLevel = typeof level === 'number' && Number.isFinite(level);
+        this._level.visible = hasLevel;
+        this._value.visible = hasLevel;
+        if (!hasLevel)
+            return;
+
+        // Au-delà de 100 %, GNOME annonce un maximum plus grand (sur-amplification) ;
+        // la jauge marque alors le 100 % par un repère.
+        const maximum = typeof maxLevel === 'number' && maxLevel > 1 ? maxLevel : 1;
+        try {
+            this._level.maximum_value = maximum;
+            this._level.overdrive_start = Math.min(1, maximum);
+        } catch {
+            // Une version qui refuse ces valeurs garde simplement sa jauge par défaut.
+        }
+        this._level.value = Math.max(0, Math.min(level, maximum));
+        this._value.text = `${Math.round(level * 100)} %`;
     }
 });
 

@@ -48,6 +48,35 @@
     border-radius: 8px;
 }
 
+/* --- OSD (volume, luminosité…) ------------------------------------------ */
+
+.di-osd {
+    spacing: 10px;
+    padding: 0 12px;
+}
+
+.di-osd-label {
+    font-size: 11px;
+}
+
+/* Largeur fixe : le pourcentage change sans faire trembler la pilule. */
+.di-osd-value {
+    font-size: 10px;
+    min-width: 34px;
+}
+
+.di-osd-level {
+    min-width: 90px;
+    -barlevel-height: 4px;
+    -barlevel-border-width: 0;
+    -barlevel-border-color: transparent;
+    -barlevel-active-border-color: transparent;
+    -barlevel-background-color: rgba(255, 255, 255, 0.22);
+    -barlevel-active-background-color: rgba(255, 255, 255, 0.95);
+    -barlevel-overdrive-color: rgba(255, 255, 255, 0.6);
+    -barlevel-overdrive-separator-width: 2px;
+}
+
 /* --- Bannière de notification ------------------------------------------- */
 
 .di-banner {

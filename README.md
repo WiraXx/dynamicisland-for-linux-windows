@@ -57,6 +57,11 @@ git pull && ./install.sh
 - **Notifications** — elles apparaissent *dans* la pilule, en haut de l'écran : l'île s'élargit,
   affiche l'icône de l'application, le titre et le message, puis se referme. Les bannières
   natives de GNOME sont masquées pour ne pas voir la notification deux fois.
+- **Volume et luminosité** — la pastille grise que GNOME affiche en bas de l'écran est
+  remplacée : appuie sur les touches de volume, de micro ou de luminosité et le réglage
+  apparaît **dans l'île**, avec l'icône, la jauge et le pourcentage. La molette sur la pilule
+  fait la même chose. L'OSD d'origine reprend la main si l'île est masquée (plein écran) ou si
+  le panneau est déjà ouvert, pour ne jamais perdre l'information.
 - **Musique** — dès qu'un lecteur joue (Spotify, Firefox, VLC, Rhythmbox… tout ce qui parle
   MPRIS), la pilule affiche la **pochette** et les boutons **précédent / lecture-pause /
   suivant**, sans changer de taille. Au changement de morceau, le titre s'affiche quelques
@@ -90,7 +95,7 @@ ouverte et regarder la pilule bouger pendant que tu ajustes.
 | **Position** | Ancrage (6 bords), décalage horizontal et vertical, écran cible |
 | **Taille** | Largeur et hauteur de la pilule, arrondi des coins, largeur et hauteur maximale du panneau |
 | **Apparence** | Couleur de fond, opacité, couleur du texte, bordure, vitesse des animations, réaction au survol |
-| **Comportement** | Notifications (durée, masquage des bannières GNOME), lecteur, durée du titre dans la pilule, luminosité, molette-volume, masquage en plein écran, masquage au repos |
+| **Comportement** | Notifications (durée, masquage des bannières GNOME), volume et luminosité dans l'île, lecteur, durée du titre dans la pilule, molette-volume, masquage en plein écran, masquage au repos |
 
 Un bouton **Réinitialiser** en bas de la page « Comportement » remet tout d'origine.
 
@@ -126,6 +131,10 @@ Le plus souvent, il manque une déconnexion/reconnexion après l'installation.
 
 **Les notifications s'affichent en double.**
 Active *Comportement → Masquer les bannières GNOME*.
+
+**Le volume s'affiche encore en bas de l'écran.**
+C'est le repli prévu : l'île était masquée (plein écran, ou *Masquer au repos*), ou le panneau
+était ouvert. Sinon, vérifie *Comportement → Volume et luminosité dans l'île*.
 
 **Le curseur de luminosité est absent.**
 C'est voulu : ta machine n'expose pas de rétroéclairage pilotable (cas des ordinateurs de bureau).

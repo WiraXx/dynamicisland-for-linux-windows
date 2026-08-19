@@ -223,6 +223,9 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
             'Évite de voir la notification deux fois'));
         modules.add(spinRow(settings, 'notification-timeout', 'Durée d’affichage',
             'En secondes', 1, 60));
+        modules.add(switchRow(settings, 'show-osd', 'Volume et luminosité dans l’île',
+            'Remplace la pastille grise que GNOME affiche en bas de l’écran. ' +
+            'Elle revient d’elle-même si l’île est masquée ou si le panneau est ouvert'));
         modules.add(switchRow(settings, 'show-media', 'Lecteur multimédia',
             'Pochette et boutons de lecture dans la pilule'));
         modules.add(spinRow(settings, 'compact-title-duration', 'Titre du morceau dans la pilule',
