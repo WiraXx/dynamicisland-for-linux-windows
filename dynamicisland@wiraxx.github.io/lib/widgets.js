@@ -3,15 +3,28 @@
  */
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {BarLevel} from 'resource:///org/gnome/shell/ui/barLevel.js';
 import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 
 import {formatAge, formatClock, hbox, setVertical, vbox} from './utils.js';
+
+/** Bouton rond ne portant qu'une icône. */
+export function makeIconButton(iconName, callback, iconSize = 14, styleClass = 'di-icon-button') {
+    const button = new St.Button({
+        style_class: styleClass,
+        child: new St.Icon({icon_name: iconName, icon_size: iconSize}),
+        y_align: Clutter.ActorAlign.CENTER,
+    });
+    button.connect('clicked', () => callback());
+    return button;
+}
 
 /** Pochette d'album, avec repli sur une icône générique. */
 export const AlbumArt = GObject.registerClass(
@@ -399,14 +412,73 @@ class OsdRow extends St.BoxLayout {
     }
 });
 
-/** Une notification dans l'historique du panneau. */
+/** Distance à parcourir pour qu'un glissement latéral supprime la ligne. */
+const SWIPE_THRESHOLD = 70;
+
+/** GNOME 45 passait des objets simples, 46+ des objets Action. */
+function invokeAction(action) {
+    try {
+        if (typeof action.activate === 'function')
+            action.activate();
+        else if (typeof action.callback === 'function')
+            action.callback();
+    } catch (error) {
+        logError(error, 'Dynamic Island: action de notification impossible');
+    }
+}
+
+/**
+ * Boutons d'action d'une notification, ou null s'il n'y en a aucune.
+ *
+ * GNOME n'implémente pas la réponse en ligne du protocole freedesktop — ni en
+ * 48, ni en 49 : le shell ne reçoit jamais de canal de réponse de la part de
+ * l'application. Ce qu'une messagerie propose (« Répondre », « Marquer comme
+ * lu »…) passe par ses actions, et c'est ce qu'on affiche ici.
+ */
+export function makeActionButtons(record, onActivated, max = 3) {
+    let actions = [];
+    try {
+        actions = record?.notification?.actions ?? [];
+    } catch {
+        return null;
+    }
+    if (actions.length === 0)
+        return null;
+
+    const box = hbox({style_class: 'di-notification-actions'});
+    for (const action of actions.slice(0, max)) {
+        const label = action?.label;
+        if (!label)
+            continue;
+        const button = new St.Button({style_class: 'di-action-button', label});
+        button.connect('clicked', () => {
+            invokeAction(action);
+            onActivated?.();
+        });
+        box.add_child(button);
+    }
+    return box.get_n_children() > 0 ? box : null;
+}
+
+/**
+ * Une notification dans l'historique du panneau.
+ *
+ * Se glisse sur le côté pour être supprimée, et affiche les actions que
+ * l'application a jointes à sa notification — dont le « Répondre » des
+ * messageries, qui ouvre la conversation.
+ */
 export const NotificationRow = GObject.registerClass({
-    Signals: {'activated': {}},
+    Signals: {'activated': {}, 'dismissed': {}},
 }, class NotificationRow extends St.Button {
-    _init(record) {
+    _init(record, showActions = true) {
         super._init({style_class: 'di-notification-row', x_expand: true, can_focus: true});
 
         this._record = record;
+        this._dragStartX = 0;
+        this._dragging = false;
+        this._swiped = false;
+
+        const content = vbox({x_expand: true});
 
         const row = hbox({style_class: 'di-notification-inner', x_expand: true});
         row.add_child(makeNotificationIcon(record, 20));
@@ -416,7 +488,11 @@ export const NotificationRow = GObject.registerClass({
         title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         text.add_child(title);
         if (record.body) {
-            const body = new St.Label({style_class: 'di-notification-body', text: record.body, opacity: 175});
+            const body = new St.Label({
+                style_class: 'di-notification-body',
+                text: record.body,
+                opacity: 175,
+            });
             body.clutter_text.ellipsize = Pango.EllipsizeMode.END;
             text.add_child(body);
         }
@@ -428,16 +504,216 @@ export const NotificationRow = GObject.registerClass({
             opacity: 140,
             y_align: Clutter.ActorAlign.CENTER,
         }));
+        content.add_child(row);
+
+        const actions = this._buildActions(showActions);
+        if (actions)
+            content.add_child(actions);
+
+        this.set_child(content);
+
+        this.connect('clicked', () => {
+            if (this._swiped) {
+                this._swiped = false;
+                return;
+            }
+            this._activateNotification();
+        });
+        this.connect('button-press-event', (_actor, event) => this._onPress(event));
+        this.connect('motion-event', (_actor, event) => this._onMotion(event));
+        this.connect('button-release-event', (_actor, event) => this._onRelease(event));
+    }
+
+    _buildActions(showActions) {
+        if (!showActions)
+            return null;
+        return makeActionButtons(this._record, () => this.emit('activated'));
+    }
+
+    _activateNotification() {
+        try {
+            this._record.notification?.activate();
+        } catch {
+            // La notification a pu être détruite entre-temps.
+        }
+        this.emit('activated');
+    }
+
+    // --- Glissement latéral -------------------------------------------------
+
+    _onPress(event) {
+        [this._dragStartX] = event.get_coords();
+        this._dragging = true;
+        this._swiped = false;
+        this.remove_all_transitions();
+        // On laisse St.Button traiter l'appui : sans quoi il n'y aurait plus de clic.
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    _onMotion(event) {
+        if (!this._dragging)
+            return Clutter.EVENT_PROPAGATE;
+
+        const [x] = event.get_coords();
+        const delta = x - this._dragStartX;
+        if (Math.abs(delta) < 5)
+            return Clutter.EVENT_PROPAGATE;
+
+        this._swiped = true;
+        this.translation_x = delta;
+        this.opacity = Math.max(70, 255 - Math.abs(delta) * 2);
+        return Clutter.EVENT_STOP;
+    }
+
+    _onRelease(event) {
+        if (!this._dragging)
+            return Clutter.EVENT_PROPAGATE;
+        this._dragging = false;
+
+        const delta = this.translation_x;
+        if (Math.abs(delta) >= SWIPE_THRESHOLD) {
+            this.dismiss(delta > 0 ? 1 : -1);
+            return Clutter.EVENT_STOP;
+        }
+
+        this.ease({
+            translation_x: 0,
+            opacity: 255,
+            duration: 160,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+        });
+        // Un glissement avorté ne doit pas se transformer en clic.
+        return this._swiped ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
+    }
+
+    /** Fait sortir la ligne par le côté, puis annonce la suppression. */
+    dismiss(direction = 1) {
+        this.reactive = false;
+        this.ease({
+            translation_x: direction * 400,
+            opacity: 0,
+            duration: 180,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => this.emit('dismissed'),
+        });
+    }
+});
+
+/** Un fichier posé dans l'étagère. */
+export const ShelfRow = GObject.registerClass({
+    Signals: {
+        'copy-requested': {},
+        'open-requested': {},
+        'remove-requested': {},
+        'selection-toggled': {},
+    },
+}, class ShelfRow extends St.Button {
+    _init(info, selected) {
+        super._init({style_class: 'di-shelf-row', x_expand: true, can_focus: true});
+
+        if (selected)
+            this.add_style_class_name('di-shelf-row-selected');
+
+        const row = hbox({style_class: 'di-shelf-inner', x_expand: true});
+        row.add_child(new St.Icon({
+            gicon: info.gicon,
+            icon_size: 18,
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+
+        const name = new St.Label({
+            style_class: 'di-shelf-name',
+            text: info.name,
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            opacity: info.exists ? 255 : 120,
+        });
+        name.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
+        row.add_child(name);
+
+        row.add_child(makeIconButton('edit-copy-symbolic', () => this.emit('copy-requested')));
+        row.add_child(makeIconButton('document-open-symbolic', () => this.emit('open-requested')));
+        row.add_child(makeIconButton('window-close-symbolic', () => this.emit('remove-requested')));
 
         this.set_child(row);
-        this.connect('clicked', () => {
-            try {
-                this._record.notification?.activate();
-            } catch {
-                // La notification a pu être détruite entre-temps.
-            }
-            this.emit('activated');
+        this.connect('clicked', () => this.emit('selection-toggled'));
+    }
+});
+
+/**
+ * Rangée de raccourcis vers des applications.
+ *
+ * Si des fichiers sont sélectionnés dans l'étagère, ils sont passés à
+ * l'application lancée — de quoi envoyer un fichier avec LocalSend en deux
+ * clics.
+ */
+export const AppShortcuts = GObject.registerClass({
+    Signals: {'launched': {}},
+}, class AppShortcuts extends St.BoxLayout {
+    _init(getSelectedUris) {
+        super._init({style_class: 'di-shortcuts', x_expand: true});
+        this._getSelectedUris = getSelectedUris;
+    }
+
+    /** Reconstruit la rangée depuis la liste d'identifiants .desktop. */
+    setApps(ids) {
+        this.destroy_all_children();
+
+        for (const id of ids) {
+            const button = this._buildButton(id);
+            if (button)
+                this.add_child(button);
+        }
+        this.visible = this.get_n_children() > 0;
+    }
+
+    _buildButton(id) {
+        const app = Shell.AppSystem.get_default().lookup_app(id);
+        const appInfo = app?.get_app_info?.() ?? this._desktopInfo(id);
+        if (!app && !appInfo)
+            return null;
+
+        const button = new St.Button({style_class: 'di-shortcut-button', can_focus: true});
+        const icon = new St.Icon({icon_size: 26});
+        const gicon = appInfo?.get_icon?.();
+        if (gicon)
+            icon.gicon = gicon;
+        else
+            icon.icon_name = 'application-x-executable-symbolic';
+        button.set_child(icon);
+
+        const name = appInfo?.get_display_name?.() ?? id.replace(/\.desktop$/, '');
+        button.accessible_name = name;
+
+        button.connect('clicked', () => {
+            this._launch(app, appInfo);
+            this.emit('launched');
         });
+        return button;
+    }
+
+    _desktopInfo(id) {
+        try {
+            return Gio.DesktopAppInfo.new(id);
+        } catch {
+            return null;
+        }
+    }
+
+    _launch(app, appInfo) {
+        const uris = this._getSelectedUris?.() ?? [];
+        try {
+            if (uris.length > 0 && appInfo) {
+                appInfo.launch_uris(uris, global.create_app_launch_context(0, -1));
+                return;
+            }
+            if (app)
+                app.activate();
+            else
+                appInfo?.launch([], global.create_app_launch_context(0, -1));
+        } catch (error) {
+            logError(error, 'Dynamic Island: lancement de l’application impossible');
+        }
     }
 });
 

@@ -131,6 +131,159 @@ function positionRow(settings) {
     return row;
 }
 
+/** Fenêtre de choix d'une application installée. */
+function showAppChooser(parent, settings) {
+    const window = new Adw.Window({
+        title: 'Ajouter une application',
+        modal: true,
+        transient_for: parent,
+        default_width: 440,
+        default_height: 560,
+    });
+
+    const box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
+    box.append(new Adw.HeaderBar());
+
+    const search = new Gtk.SearchEntry({
+        placeholder_text: 'Rechercher…',
+        margin_start: 12,
+        margin_end: 12,
+        margin_bottom: 6,
+    });
+    box.append(search);
+
+    const list = new Gtk.ListBox({
+        selection_mode: Gtk.SelectionMode.NONE,
+        css_classes: ['boxed-list'],
+        margin_start: 12,
+        margin_end: 12,
+        margin_bottom: 12,
+    });
+
+    const scrolled = new Gtk.ScrolledWindow({vexpand: true, child: list});
+    box.append(scrolled);
+    window.set_content(box);
+
+    const apps = Gio.AppInfo.get_all()
+        .filter(app => app.should_show() && app.get_id())
+        .sort((a, b) => a.get_display_name().localeCompare(b.get_display_name()));
+
+    for (const app of apps) {
+        const row = new Adw.ActionRow({
+            title: app.get_display_name(),
+            subtitle: app.get_description() ?? null,
+            activatable: true,
+        });
+        const icon = app.get_icon();
+        if (icon)
+            row.add_prefix(Gtk.Image.new_from_gicon(icon));
+        row._appId = app.get_id();
+        row._searchText = `${app.get_display_name()} ${app.get_id()}`.toLowerCase();
+        list.append(row);
+    }
+
+    list.set_filter_func(row => {
+        const query = search.text.trim().toLowerCase();
+        return query === '' || row._searchText.includes(query);
+    });
+    search.connect('search-changed', () => list.invalidate_filter());
+
+    list.connect('row-activated', (_list, row) => {
+        const shortcuts = settings.get_strv('app-shortcuts');
+        if (!shortcuts.includes(row._appId))
+            settings.set_strv('app-shortcuts', [...shortcuts, row._appId]);
+        window.close();
+    });
+
+    window.present();
+}
+
+/** Liste des applications épinglées, avec ajout et retrait. */
+function appShortcutsGroup(settings) {
+    const group = new Adw.PreferencesGroup({
+        title: 'Applications épinglées',
+        description: 'Leurs icônes apparaissent dans le panneau. ' +
+            'Si des fichiers sont sélectionnés dans l’étagère, ils sont passés à l’application ' +
+            'lancée — de quoi envoyer un fichier avec LocalSend en deux clics.',
+    });
+
+    const addButton = new Gtk.Button({
+        icon_name: 'list-add-symbolic',
+        valign: Gtk.Align.CENTER,
+        css_classes: ['flat'],
+        tooltip_text: 'Ajouter une application',
+    });
+    addButton.connect('clicked', () => showAppChooser(group.get_root(), settings));
+    group.set_header_suffix(addButton);
+
+    let rows = [];
+    const rebuild = () => {
+        rows.forEach(row => group.remove(row));
+        rows = [];
+
+        const shortcuts = settings.get_strv('app-shortcuts');
+        if (shortcuts.length === 0) {
+            const empty = new Adw.ActionRow({
+                title: 'Aucune application',
+                subtitle: 'Utilise le bouton + pour en ajouter',
+            });
+            rows.push(empty);
+            group.add(empty);
+            return;
+        }
+
+        shortcuts.forEach((id, index) => {
+            let appInfo = null;
+            try {
+                appInfo = Gio.DesktopAppInfo.new(id);
+            } catch {
+                appInfo = null;
+            }
+
+            const row = new Adw.ActionRow({
+                title: appInfo?.get_display_name() ?? id,
+                subtitle: appInfo ? null : 'Application introuvable',
+            });
+            const icon = appInfo?.get_icon();
+            if (icon)
+                row.add_prefix(Gtk.Image.new_from_gicon(icon));
+
+            const up = new Gtk.Button({
+                icon_name: 'go-up-symbolic',
+                valign: Gtk.Align.CENTER,
+                css_classes: ['flat'],
+                sensitive: index > 0,
+                tooltip_text: 'Monter',
+            });
+            up.connect('clicked', () => {
+                const list = settings.get_strv('app-shortcuts');
+                [list[index - 1], list[index]] = [list[index], list[index - 1]];
+                settings.set_strv('app-shortcuts', list);
+            });
+
+            const remove = new Gtk.Button({
+                icon_name: 'user-trash-symbolic',
+                valign: Gtk.Align.CENTER,
+                css_classes: ['flat'],
+                tooltip_text: 'Retirer',
+            });
+            remove.connect('clicked', () => {
+                settings.set_strv('app-shortcuts',
+                    settings.get_strv('app-shortcuts').filter(entry => entry !== id));
+            });
+
+            row.add_suffix(up);
+            row.add_suffix(remove);
+            rows.push(row);
+            group.add(row);
+        });
+    };
+
+    settings.connect('changed::app-shortcuts', rebuild);
+    rebuild();
+    return group;
+}
+
 function page(title, iconName) {
     return new Adw.PreferencesPage({title, icon_name: iconName});
 }
@@ -147,6 +300,7 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
         window.add(this._positionPage(settings));
         window.add(this._sizePage(settings));
         window.add(this._appearancePage(settings));
+        window.add(this._shortcutsPage(settings));
         window.add(this._behaviourPage(settings));
     }
 
@@ -213,6 +367,22 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
         return p;
     }
 
+    _shortcutsPage(settings) {
+        const p = page('Raccourcis', 'view-grid-symbolic');
+        p.add(appShortcutsGroup(settings));
+
+        const shelf = group('Étagère à fichiers',
+            'Copie un fichier (Ctrl+C dans les Fichiers) et il se pose dans l’île : ' +
+            'un clic le remet dans le presse-papier pour le coller ailleurs, ou le passe ' +
+            'à une application épinglée.');
+        shelf.add(switchRow(settings, 'show-shelf', 'Afficher l’étagère'));
+        shelf.add(switchRow(settings, 'shelf-auto-capture', 'Attraper les fichiers copiés',
+            'Sinon, le bouton coller de la section « Fichiers » les ajoute à la demande'));
+        p.add(shelf);
+
+        return p;
+    }
+
     _behaviourPage(settings) {
         const p = page('Comportement', 'preferences-system-symbolic');
 
@@ -221,6 +391,8 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
             'Les afficher dans l’île'));
         modules.add(switchRow(settings, 'hide-native-banners', 'Masquer les bannières GNOME',
             'Évite de voir la notification deux fois'));
+        modules.add(switchRow(settings, 'show-notification-actions', 'Boutons d’action',
+            'Affiche les actions jointes par l’application, comme « Répondre »'));
         modules.add(spinRow(settings, 'notification-timeout', 'Durée d’affichage',
             'En secondes', 1, 60));
         modules.add(switchRow(settings, 'show-osd', 'Volume et luminosité dans l’île',

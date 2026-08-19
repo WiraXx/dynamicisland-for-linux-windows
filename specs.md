@@ -33,6 +33,11 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | Fonction | Rôle | Entrées | Sorties |
 |---|---|---|---|
 | `_buildViews()` | Construit les trois vues et les empile dans l'île | — | — |
+| `_updateShelf()` | Reconstruit la section « Fichiers » | — | lignes cliquables, section masquée si `show-shelf` est faux |
+| `_pasteIntoShelf()` | Ajoute les fichiers du presse-papier à la demande | — | confirmation dans le titre de la section |
+| `_onShelfChanged()` | L'étagère a bougé | — | met le panneau à jour, ou signale la prise dans la pilule si elle est repliée |
+| `_dismissNotification(record)` | Supprime une notification glissée sur le côté | enregistrement | la détruit aussi côté shell |
+| `_restartNotificationTimer()` | (Re)lance la disparition de la bannière | — | suspendu tant que la souris survole l'île, pour laisser cliquer une action |
 | `_setCompactMode(showTitle)` | Bascule la pilule entre « titre + égaliseur » et « pochette + boutons » | booléen | réanime la géométrie si l'île est compacte |
 | `_flashCompactTitle()` | Montre le titre le temps réglé puis rétracte la pilule | — | ne fait rien si la durée vaut 0 |
 | `_monitor()` | Écran sur lequel s'affiche l'île | réglage `monitor` | objet moniteur ; l'écran principal si l'index est invalide |
@@ -61,6 +66,27 @@ Acteur `St.Widget` unique, ajouté via `Main.layoutManager.addTopChrome()`.
 | `_onKeyPress(event)` | Clavier sur l'île | événement | `Échap` referme le panneau |
 | `_onCapturedEvent(event)` | Filtre les événements pendant que le panneau est ouvert | événement | ferme sur `Échap` ou sur un clic hors de l'île |
 | `_onDestroy()` | Ménage | — | déconnecte tout, détruit les trois modules |
+
+---
+
+## `lib/shelf.js` — étagère à fichiers
+
+GNOME Shell ne peut pas recevoir un fichier déposé : `js/ui/xdndHandler.js` ne suit que la
+position du curseur pendant un glissement (`dnd-enter`, `dnd-position-change`, `dnd-leave`), sans
+transfert de données ni délivrance du dépôt — seule une fenêtre peut être destinataire. L'étagère
+passe donc par le presse-papier, qui transporte la même liste d'URI.
+
+| Fonction | Rôle | Entrées | Sorties |
+|---|---|---|---|
+| `_watchClipboard()` | Écoute les changements du presse-papier | — | ajoute les fichiers copiés si `shelf-auto-capture` ; sans surveillance possible, seul le bouton coller agit |
+| `captureClipboard(onDone)` | Lit le presse-papier à la demande | rappel | nombre de fichiers ajoutés |
+| `_parseUriList(bytes)` | Analyse le `text/uri-list` | octets | URI `file://` existants seulement (la ligne « copy » de Nautilus est ignorée) |
+| `addUris(uris)` | Ajoute en tête, sans doublon | liste d'URI | 8 fichiers au maximum, persistés dans `shelf-files` |
+| `remove(uri)` / `clear()` / `pruneMissing()` | Retrait, vidage, nettoyage des fichiers disparus | — | émet `changed` |
+| `toggleSelection(uri)` / `selectedUris` | Sélection passée aux applications épinglées | URI | — |
+| `copyToClipboard(uri)` | Remet le fichier dans le presse-papier | URI | vrai si la copie a réussi |
+| `open(uri)` | Ouvre avec l'application par défaut | URI | — |
+| `describe(uri)` | Nom, icône et existence, pour l'affichage | URI | objet ; les fichiers disparus restent affichés en grisé |
 
 ---
 
@@ -114,11 +140,15 @@ animation ne reste bloquée, et la zone cliquable suit la transformation.
 |---|---|
 | `AlbumArt(size)` | Pochette arrondie ; `setArt(url)` accepte un fichier local, repli sur une icône générique pour les pochettes distantes |
 | `Equalizer(barCount)` | Barres animées ; `setPlaying(bool)` démarre ou fige l'animation |
+| `makeIconButton(icon, callback, size, class)` | Bouton rond ne portant qu'une icône |
+| `makeActionButtons(record, onActivated, max)` | Boutons d'action d'une notification, gère les deux formes d'API (GNOME 45 : objets simples ; 46+ : objets `Action`) |
+| `ShelfRow(info, selected)` | Ligne de l'étagère : icône, nom, copier, ouvrir, retirer ; le clic bascule la sélection |
+| `AppShortcuts(getSelectedUris)` | Rangée d'applications épinglées ; lance avec les fichiers sélectionnés via `launch_uris()`, sinon `activate()` |
 | `OsdRow()` | Icône + jauge (`BarLevel`) + pourcentage ; `update(icon, label, level, maxLevel)` accepte les paramètres du shell tels quels, gère l'absence de jauge et la sur-amplification au-delà de 100 % |
 | `MediaControls(media, options)` | Précédent / lecture-pause / suivant en icônes du thème ; `update(info)` change l'icône de lecture et grise ce que le lecteur ne sait pas faire ; partagé entre la pilule (petites icônes) et le panneau |
 | `SliderRow(iconName)` | Icône + curseur ; signaux `value-changed` et `icon-clicked` ; `setValue()` ne réémet rien (pas de boucle) |
 | `MediaCard(media)` | Carte du lecteur ; `update()` recopie l'état, `setPolling(bool)` rafraîchit la progression à 1 Hz |
-| `NotificationRow(record)` | Entrée d'historique ; le clic active la notification puis émet `activated` |
+| `NotificationRow(record, showActions)` | Entrée d'historique : le clic active la notification, un glissement latéral de 70 px la supprime (émet `dismissed`), et les actions de l'application sont affichées dessous |
 | `makeNotificationIcon(record, size)` | Icône d'une notification, avec repli symbolique |
 
 ---
@@ -141,7 +171,7 @@ animation ne reste bloquée, et la zone cliquable suit la transformation.
 
 ## `prefs.js` — réglages
 
-Quatre pages : **Position**, **Taille**, **Apparence**, **Comportement**, plus un bouton de
+Cinq pages : **Position**, **Taille**, **Apparence**, **Raccourcis**, **Comportement**, plus un bouton de
 réinitialisation. Chaque ligne est liée à une clé GSettings par `Gio.Settings.bind()`, donc tout
 changement est appliqué à chaud par l'île.
 
@@ -152,6 +182,16 @@ changement est appliqué à chaud par l'île.
 | `scaleRow(settings, key, …, min, max, step)` | Ligne curseur pour les valeurs à virgule |
 | `colorRow(settings, key, …)` | Sélecteur de couleur, stockée en `#rrggbb` |
 | `positionRow(settings)` | Liste déroulante des six ancrages |
+| `appShortcutsGroup(settings)` | Liste des applications épinglées, avec ajout, montée et retrait |
+| `showAppChooser(parent, settings)` | Fenêtre de choix parmi les applications installées, avec recherche |
+
+### Sur la réponse aux notifications
+
+GNOME n'implémente pas la réponse en ligne du protocole freedesktop : ni `gnome-48` ni `gnome-49`
+ne mentionnent `inline-reply`, et `GetCapabilities()` ne l'annonce pas. Le shell ne reçoit donc
+jamais de canal de réponse d'une application. Ce que l'île peut offrir — et offre — ce sont les
+**actions** jointes à la notification (`Notification.actions`), dont le « Répondre » des
+messageries.
 
 ---
 
@@ -165,12 +205,17 @@ changement est appliqué à chaud par l'île.
 | `offset-x` / `offset-y` | entier | 0 / 2 | décalage depuis l'ancrage |
 | `monitor` | entier | -1 | écran cible (-1 = principal) |
 | `expanded-width` | entier | 400 | largeur du panneau |
-| `expanded-max-height` | entier | 520 | hauteur maximale du panneau |
+| `expanded-max-height` | entier | 640 | hauteur maximale du panneau |
 | `background-color` / `background-opacity` | chaîne / réel | `#000000` / 1.0 | fond de l'île |
 | `text-color` | chaîne | `#ffffff` | couleur du texte |
 | `border-width` / `border-color` | entier / chaîne | 0 / `#3c3c3c` | bordure |
 | `animation-speed` | réel | 1.0 | diviseur des durées d'animation |
 | `notification-timeout` | entier | 5 | durée d'affichage d'une notification |
+| `app-shortcuts` | liste | vide | identifiants `.desktop` des applications épinglées |
+| `show-shelf` | booléen | vrai | affiche l'étagère à fichiers |
+| `shelf-files` | liste | vide | fichiers posés dans l'étagère (état persistant) |
+| `shelf-auto-capture` | booléen | vrai | attrape automatiquement les fichiers copiés |
+| `show-notification-actions` | booléen | vrai | boutons d'action des notifications |
 | `show-osd` | booléen | vrai | volume et luminosité affichés dans l'île plutôt qu'en bas de l'écran |
 | `compact-title-duration` | entier | 3 | secondes d'affichage du titre dans la pilule (0 = jamais) |
 | `hide-native-banners` | booléen | vrai | masque les bannières GNOME |

@@ -13,8 +13,12 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {MediaPlayer} from './mediaPlayer.js';
 import {NotificationWatcher} from './notifications.js';
+import {FileShelf} from './shelf.js';
 import {SystemControls} from './system.js';
-import {AlbumArt, Equalizer, MediaCard, MediaControls, NotificationRow, OsdRow, SliderRow, makeNotificationIcon} from './widgets.js';
+import {
+    AlbumArt, AppShortcuts, Equalizer, MediaCard, MediaControls, NotificationRow, OsdRow,
+    ShelfRow, SliderRow, makeActionButtons, makeIconButton, makeNotificationIcon,
+} from './widgets.js';
 import {TimeoutPool, clamp, formatNow, hbox, toRgba, vbox} from './utils.js';
 
 /** Les quatre visages de l'île. */
@@ -54,6 +58,7 @@ class Island extends St.Widget {
         this._clockTimer = 0;
         this._compactTitleTimer = 0;
         this._osdTimer = 0;
+        this._shelfTitleTimer = 0;
         this._osdPatched = false;
         this._compactShowsTitle = false;
         this._lastTrack = null;
@@ -65,6 +70,8 @@ class Island extends St.Widget {
         this._media = new MediaPlayer();
         this._system = new SystemControls();
         this._notifications = new NotificationWatcher(this._settings);
+        this._shelf = new FileShelf(this._settings);
+        this._shelfCount = this._shelf.uris.length;
 
         this._buildViews();
 
@@ -74,6 +81,7 @@ class Island extends St.Widget {
             [this._system, this._system.connect('brightness-changed', () => this._onBrightnessChanged())],
             [this._notifications, this._notifications.connect('notification',
                 (_watcher, record) => this._onNotification(record))],
+            [this._shelf, this._shelf.connect('changed', () => this._onShelfChanged())],
         ];
 
         this._settingsId = this._settings.connect('changed', (_settings, key) => this._onSettingChanged(key));
@@ -172,6 +180,7 @@ class Island extends St.Widget {
         this._timeouts.remove(this._compactTitleTimer);
         this._compactTitleTimer = 0;
         this._osdTimer = 0;
+        this._shelfTitleTimer = 0;
         this._osdPatched = false;
 
         const seconds = this._settings.get_int('compact-title-duration');
@@ -184,6 +193,7 @@ class Island extends St.Widget {
         this._compactTitleTimer = this._timeouts.add(seconds * 1000, () => {
             this._compactTitleTimer = 0;
         this._osdTimer = 0;
+        this._shelfTitleTimer = 0;
         this._osdPatched = false;
             this._setCompactMode(false);
         });
@@ -202,6 +212,8 @@ class Island extends St.Widget {
         this._bannerBody.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         text.add_child(this._bannerTitle);
         text.add_child(this._bannerBody);
+        this._bannerActions = null;
+        this._bannerText = text;
         view.add_child(text);
 
         return view;
@@ -248,6 +260,44 @@ class Island extends St.Widget {
             this._system.brightness = value;
         });
         view.add_child(this._brightnessRow);
+
+        // Raccourcis d'applications.
+        this._shortcuts = new AppShortcuts(() => this._shelf?.selectedUris ?? []);
+        this._shortcuts.connect('launched', () => this.collapse());
+        view.add_child(this._shortcuts);
+
+        // Étagère à fichiers.
+        this._shelfSection = vbox({x_expand: true});
+        const shelfHeader = hbox({style_class: 'di-section-header', x_expand: true});
+        this._shelfTitle = new St.Label({
+            style_class: 'di-section-title',
+            text: 'Fichiers',
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        shelfHeader.add_child(this._shelfTitle);
+        shelfHeader.add_child(makeIconButton('edit-paste-symbolic', () => this._pasteIntoShelf()));
+        this._shelfClearButton = new St.Button({
+            style_class: 'di-text-button',
+            label: 'Vider',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._shelfClearButton.connect('clicked', () => this._shelf?.clear());
+        shelfHeader.add_child(this._shelfClearButton);
+        this._shelfSection.add_child(shelfHeader);
+
+        this._shelfList = vbox({style_class: 'di-shelf-list', x_expand: true});
+        this._shelfSection.add_child(this._shelfList);
+
+        this._shelfEmpty = new St.Label({
+            style_class: 'di-empty',
+            text: 'Copie un fichier, il se pose ici',
+            x_expand: true,
+            opacity: 150,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        this._shelfSection.add_child(this._shelfEmpty);
+        view.add_child(this._shelfSection);
 
         // Historique des notifications.
         const notifHeader = hbox({style_class: 'di-section-header', x_expand: true});
@@ -489,6 +539,8 @@ class Island extends St.Widget {
 
         this._cancelNotificationTimer();
         this._resetScale();
+        // Un fichier a pu être déplacé ou supprimé depuis la dernière ouverture.
+        this._shelf?.pruneMissing();
         this._updateExpanded();
         this._setState(State.EXPANDED);
         this._mediaCard.setPolling(this._mediaCard.visible);
@@ -536,15 +588,89 @@ class Island extends St.Widget {
         if (this._brightnessRow.visible)
             this._brightnessRow.setValue(this._system.brightness);
 
+        this._shortcuts.setApps(this._settings.get_strv('app-shortcuts'));
+        this._updateShelf();
         this._rebuildNotificationList();
     }
+
+    // ------------------------------------------------------------- étagère
+
+    _updateShelf() {
+        const show = this._settings.get_boolean('show-shelf');
+        this._shelfSection.visible = show;
+        if (!show || !this._shelf)
+            return;
+
+        this._shelfList.destroy_all_children();
+
+        for (const uri of this._shelf.uris) {
+            const row = new ShelfRow(this._shelf.describe(uri), this._shelf.isSelected(uri));
+            row.connect('copy-requested', () => {
+                if (this._shelf.copyToClipboard(uri))
+                    this._flashShelfTitle('Copié dans le presse-papier');
+            });
+            row.connect('open-requested', () => {
+                this._shelf.open(uri);
+                this.collapse();
+            });
+            row.connect('remove-requested', () => this._shelf.remove(uri));
+            row.connect('selection-toggled', () => this._shelf.toggleSelection(uri));
+            this._shelfList.add_child(row);
+        }
+
+        const empty = this._shelf.isEmpty;
+        this._shelfEmpty.visible = empty;
+        this._shelfList.visible = !empty;
+        this._shelfClearButton.visible = !empty;
+    }
+
+    _pasteIntoShelf() {
+        this._shelf?.captureClipboard(count => {
+            this._flashShelfTitle(count > 0
+                ? `${count} fichier${count > 1 ? 's' : ''} ajouté${count > 1 ? 's' : ''}`
+                : 'Aucun fichier dans le presse-papier');
+        });
+    }
+
+    /** Confirmation discrète, dans le titre de la section. */
+    _flashShelfTitle(message) {
+        this._shelfTitle.text = message;
+        this._timeouts.remove(this._shelfTitleTimer);
+        this._shelfTitleTimer = this._timeouts.add(2000, () => {
+            this._shelfTitleTimer = 0;
+            this._shelfTitle.text = 'Fichiers';
+        });
+    }
+
+    _onShelfChanged() {
+        const count = this._shelf?.uris.length ?? 0;
+        const grew = count > this._shelfCount;
+        this._shelfCount = count;
+
+        if (this._state === State.EXPANDED) {
+            this._updateShelf();
+            this._geometry = null;
+            this._applyState(State.EXPANDED);
+            return;
+        }
+
+        // Fichier attrapé au vol pendant que l'île est repliée : on le signale.
+        if (grew && this.visible && this._settings.get_boolean('show-shelf')) {
+            this._showOsd(new Gio.ThemedIcon({name: 'folder-symbolic'}),
+                'Fichier posé dans l’île', null, null);
+        }
+    }
+
+    // -------------------------------------------------------- notifications
 
     _rebuildNotificationList() {
         this._notificationList.destroy_all_children();
 
+        const showActions = this._settings.get_boolean('show-notification-actions');
         for (const record of this._history) {
-            const row = new NotificationRow(record);
+            const row = new NotificationRow(record, showActions);
             row.connect('activated', () => this.collapse());
+            row.connect('dismissed', () => this._dismissNotification(record));
             this._notificationList.add_child(row);
         }
 
@@ -552,6 +678,22 @@ class Island extends St.Widget {
         this._emptyLabel.visible = empty;
         this._notificationList.visible = !empty;
         this._clearButton.visible = !empty;
+    }
+
+    /** Retire une notification de l'île et du shell. */
+    _dismissNotification(record) {
+        try {
+            record.notification?.destroy();
+        } catch {
+            // Déjà disparue côté shell.
+        }
+        this._history = this._history.filter(entry => entry !== record);
+        this._rebuildNotificationList();
+
+        if (this._state === State.EXPANDED) {
+            this._geometry = null;
+            this._applyState(State.EXPANDED);
+        }
     }
 
     _clearHistory() {
@@ -609,6 +751,7 @@ class Island extends St.Widget {
             this._timeouts.remove(this._compactTitleTimer);
             this._compactTitleTimer = 0;
         this._osdTimer = 0;
+        this._shelfTitleTimer = 0;
         this._osdPatched = false;
             this._equalizer.setPlaying(false);
         }
@@ -643,6 +786,7 @@ class Island extends St.Widget {
     _onNotification(record) {
         this._timeouts.remove(this._osdTimer);
         this._osdTimer = 0;
+        this._shelfTitleTimer = 0;
 
         if (!record.transient) {
             this._history.unshift(record);
@@ -665,8 +809,24 @@ class Island extends St.Widget {
         else
             this._bannerIcon.icon_name = 'preferences-system-notifications-symbolic';
 
-        this._setState(State.NOTIFICATION);
+        if (this._bannerActions) {
+            this._bannerActions.destroy();
+            this._bannerActions = null;
+        }
+        if (this._settings.get_boolean('show-notification-actions')) {
+            this._bannerActions = makeActionButtons(record, () => {
+                this._cancelNotificationTimer();
+                this._setState(this._collapsedState());
+            }, 2);
+            if (this._bannerActions)
+                this._bannerText.add_child(this._bannerActions);
+        }
 
+        this._setState(State.NOTIFICATION);
+        this._restartNotificationTimer();
+    }
+
+    _restartNotificationTimer() {
         this._cancelNotificationTimer();
         const seconds = this._settings.get_int('notification-timeout');
         this._notificationTimer = this._timeouts.add(seconds * 1000, () => {
@@ -694,6 +854,12 @@ class Island extends St.Widget {
         case 'border-color':
             this._updateStyle();
             return;
+        case 'app-shortcuts':
+        case 'show-shelf':
+        case 'show-notification-actions':
+            if (this._state === State.EXPANDED)
+                this._updateExpanded();
+            break;
         case 'show-media':
         case 'show-notifications':
         case 'show-brightness':
@@ -721,10 +887,14 @@ class Island extends St.Widget {
         if (button !== Clutter.BUTTON_PRIMARY)
             return Clutter.EVENT_PROPAGATE;
 
-        // Une fois déployée, l'île se referme par l'extérieur ou par Échap :
-        // les clics dans le panneau doivent rester au panneau.
-        if (this._state === State.EXPANDED)
-            return Clutter.EVENT_PROPAGATE;
+        // Panneau ouvert : ce qui arrive jusqu'ici n'a été consommé par aucun
+        // bouton, aucun curseur, aucune notification — c'est donc un clic sur
+        // le fond, et il referme. Combiné au calque qui couvre l'écran, cliquer
+        // n'importe où ferme le panneau.
+        if (this._state === State.EXPANDED) {
+            this.collapse();
+            return Clutter.EVENT_STOP;
+        }
 
         this.expand();
         return Clutter.EVENT_STOP;
@@ -766,6 +936,13 @@ class Island extends St.Widget {
     }
 
     _onHover() {
+        if (this._state === State.NOTIFICATION) {
+            if (this.hover)
+                this._cancelNotificationTimer();
+            else
+                this._restartNotificationTimer();
+        }
+
         if (!this._settings.get_boolean('hover-peek') || this._state === State.EXPANDED) {
             this._resetScale();
             return;
@@ -839,6 +1016,7 @@ class Island extends St.Widget {
         this._timeouts.remove(this._osdTimer);
         this._osdTimer = this._timeouts.add(OSD_TIMEOUT, () => {
             this._osdTimer = 0;
+        this._shelfTitleTimer = 0;
             if (this._state === State.OSD)
                 this._setState(this._collapsedState());
         });
@@ -885,7 +1063,14 @@ class Island extends St.Widget {
             affectsStruts: false,
             trackFullscreen: false,
         });
-        Main.uiGroup.set_child_below_sibling(catcher, this);
+
+        // addChrome() range l'acteur sous les fenêtres ; on le remonte juste
+        // sous l'île, sinon les clics sur une fenêtre ne l'atteindraient pas.
+        try {
+            Main.uiGroup.set_child_below_sibling(catcher, this);
+        } catch (error) {
+            logError(error, 'Dynamic Island: impossible de placer le calque de fermeture');
+        }
         this._catcher = catcher;
     }
 
@@ -983,9 +1168,11 @@ class Island extends St.Widget {
             this._monitorsId = 0;
         }
 
+        this._shelf?.destroy();
         this._notifications?.destroy();
         this._media?.destroy();
         this._system?.destroy();
+        this._shelf = null;
         this._notifications = null;
         this._media = null;
         this._system = null;

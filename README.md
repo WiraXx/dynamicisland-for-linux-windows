@@ -47,7 +47,8 @@ git pull && ./install.sh
 | Geste | Effet |
 |---|---|
 | **Clic gauche** sur la pilule | Déplie le panneau de contrôle |
-| **Clic n'importe où ailleurs** ou **Échap** | Referme le panneau |
+| **Clic n'importe où** (fond du panneau compris) ou **Échap** | Referme le panneau |
+| **Glissement latéral** sur une notification | La supprime |
 | **Clic droit** sur la pilule | Ouvre les réglages |
 | **Molette** sur la pilule | Règle le volume |
 | **Survol** | La pilule réagit légèrement |
@@ -74,8 +75,36 @@ git pull && ./install.sh
   - curseur de **volume** (l'icône coupe le son) ;
   - curseur de **luminosité** (masqué automatiquement sur les machines sans rétroéclairage
     pilotable) ;
-  - les **5 dernières notifications**, cliquables pour ouvrir l'application concernée, avec un
-    bouton « Tout effacer ».
+  - les **raccourcis d'applications** que tu as épinglés (voir plus bas) ;
+  - l'**étagère à fichiers** (voir plus bas) ;
+  - les **5 dernières notifications** : un clic ouvre l'application, un **glissement sur le
+    côté** supprime la notification, et les **boutons d'action** de l'application (« Répondre »,
+    « Marquer comme lu »…) sont affichés sous le message. Bouton « Tout effacer » pour la liste.
+
+### Étagère à fichiers
+
+Copie un fichier (`Ctrl+C` dans les Fichiers) : il se pose dans l'île. Ensuite, sur chaque ligne :
+
+- un clic sur la ligne le **sélectionne** (pour l'envoyer à une application épinglée) ;
+- le bouton **copier** le remet dans le presse-papier, prêt à être collé ailleurs ;
+- le bouton **ouvrir** le lance avec l'application par défaut ;
+- la croix le retire de l'étagère.
+
+L'étagère garde les 8 derniers fichiers et survit à la fermeture de session.
+
+> **Pourquoi copier et pas glisser-déposer ?** GNOME Shell ne peut pas être la cible d'un dépôt
+> de fichier. Son gestionnaire de glisser-déposer (`js/ui/xdndHandler.js`) suit la position du
+> curseur pendant un glissement, mais aucune donnée ne lui est transmise et aucun dépôt ne lui
+> est délivré : seule une fenêtre peut recevoir un fichier. Le presse-papier transporte
+> exactement la même chose (une liste d'URI), d'où ce choix.
+
+### Raccourcis d'applications
+
+Épingle des applications dans *Réglages → Raccourcis*. Leurs icônes apparaissent dans le panneau.
+
+Si des fichiers sont **sélectionnés dans l'étagère**, ils sont passés à l'application lancée :
+copier un fichier, cliquer dessus dans l'île, cliquer sur **LocalSend** — et le partage part avec
+le fichier déjà chargé.
 
 ---
 
@@ -95,7 +124,8 @@ ouverte et regarder la pilule bouger pendant que tu ajustes.
 | **Position** | Ancrage (6 bords), décalage horizontal et vertical, écran cible |
 | **Taille** | Largeur et hauteur de la pilule, arrondi des coins, largeur et hauteur maximale du panneau |
 | **Apparence** | Couleur de fond, opacité, couleur du texte, bordure, vitesse des animations, réaction au survol |
-| **Comportement** | Notifications (durée, masquage des bannières GNOME), volume et luminosité dans l'île, lecteur, durée du titre dans la pilule, molette-volume, masquage en plein écran, masquage au repos |
+| **Raccourcis** | Applications épinglées (ajout, ordre, retrait), étagère à fichiers |
+| **Comportement** | Notifications (durée, boutons d'action, masquage des bannières GNOME), volume et luminosité dans l'île, lecteur, durée du titre dans la pilule, molette-volume, masquage en plein écran, masquage au repos |
 
 Un bouton **Réinitialiser** en bas de la page « Comportement » remet tout d'origine.
 
@@ -135,6 +165,17 @@ Active *Comportement → Masquer les bannières GNOME*.
 **Le volume s'affiche encore en bas de l'écran.**
 C'est le repli prévu : l'île était masquée (plein écran, ou *Masquer au repos*), ou le panneau
 était ouvert. Sinon, vérifie *Comportement → Volume et luminosité dans l'île*.
+
+**Répondre directement depuis la notification ?**
+GNOME n'implémente pas la réponse en ligne du protocole de notifications — ni en 48, ni en 49 :
+le shell ne reçoit jamais de canal de réponse de la part de l'application. Ce qui est affiché,
+ce sont les **actions** que l'application joint elle-même à sa notification ; le « Répondre »
+d'une messagerie ouvre donc la conversation dans l'application.
+
+**Les fichiers copiés n'arrivent pas tout seuls dans l'étagère.**
+La surveillance du presse-papier n'a pas pu se mettre en place sur ta version. Le bouton coller
+de la section « Fichiers » les ajoute à la demande, et *Raccourcis → Attraper les fichiers
+copiés* contrôle l'automatisme.
 
 **Le curseur de luminosité est absent.**
 C'est voulu : ta machine n'expose pas de rétroéclairage pilotable (cas des ordinateurs de bureau).

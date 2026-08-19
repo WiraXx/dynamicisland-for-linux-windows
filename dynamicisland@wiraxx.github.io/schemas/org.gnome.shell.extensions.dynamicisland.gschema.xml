@@ -52,7 +52,7 @@
       <summary>Largeur du panneau déployé</summary>
     </key>
     <key name="expanded-max-height" type="i">
-      <default>520</default>
+      <default>640</default>
       <range min="120" max="2000"/>
       <summary>Hauteur maximale du panneau déployé</summary>
     </key>
@@ -99,6 +99,27 @@
     <key name="show-notifications" type="b">
       <default>true</default>
       <summary>Afficher les notifications dans l'île</summary>
+    </key>
+    <!-- Raccourcis et étagère -->
+    <key name="app-shortcuts" type="as">
+      <default>[]</default>
+      <summary>Identifiants .desktop des applications épinglées</summary>
+    </key>
+    <key name="show-shelf" type="b">
+      <default>true</default>
+      <summary>Afficher l'étagère à fichiers</summary>
+    </key>
+    <key name="shelf-files" type="as">
+      <default>[]</default>
+      <summary>Fichiers posés dans l'étagère (URI)</summary>
+    </key>
+    <key name="shelf-auto-capture" type="b">
+      <default>true</default>
+      <summary>Attraper automatiquement les fichiers copiés</summary>
+    </key>
+    <key name="show-notification-actions" type="b">
+      <default>true</default>
+      <summary>Afficher les boutons d'action des notifications</summary>
     </key>
     <key name="show-osd" type="b">
       <default>true</default>
