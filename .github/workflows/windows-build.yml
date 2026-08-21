@@ -1,0 +1,45 @@
+name: Compilation Windows
+
+on:
+  push:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-build.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Construire l'executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Recuperer le depot
+        uses: actions/checkout@v4
+
+      - name: Installer le SDK .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Compiler
+        run: dotnet build windows/DynamicIsland/DynamicIsland.csproj -c Release
+
+      - name: Publier un executable autonome
+        run: >
+          dotnet publish windows/DynamicIsland/DynamicIsland.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish
+
+      - name: Deposer l'executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: DynamicIsland-windows-x64
+          path: publish/DynamicIsland.exe
+          if-no-files-found: error

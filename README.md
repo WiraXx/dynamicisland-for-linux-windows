@@ -1,6 +1,20 @@
-# Dynamic Island pour Linux (GNOME)
+# Dynamic Island
 
-Une **Dynamic Island** à la façon d'iOS, pour le bureau GNOME.
+Une **Dynamic Island** à la façon d'iOS, pour **GNOME** et pour **Windows**.
+
+| Plateforme | Où | Comment |
+|---|---|---|
+| **Linux (GNOME 45 → 49)** | ce dossier | extension GNOME Shell, `./install.sh` |
+| **Windows 10 / 11** | [`windows/`](windows/README.md) | application C# / WPF, exécutable autonome |
+
+Ce sont **deux logiciels distincts** qui partagent un design, pas un code : l'extension GNOME
+s'exécute à l'intérieur du compositeur et n'a aucun équivalent exécutable sur Windows. Chacune
+utilise les API de son système — MPRIS d'un côté, SMTC de l'autre ; message tray d'un côté,
+`UserNotificationListener` de l'autre.
+
+Ce fichier documente la version **GNOME**. Pour Windows, voir [`windows/README.md`](windows/README.md).
+
+---
 
 Une pilule noire flotte en haut de l'écran. Elle ne fait rien tant qu'il ne se passe rien,
 puis elle s'anime : une notification arrive et elle s'ouvre pour l'afficher, la musique démarre
