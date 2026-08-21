@@ -17,6 +17,11 @@
     <!-- L'interface est construite en C# : pas de XAML, donc pas de App.xaml. -->
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <Version>1.0.0</Version>
+    <!-- WFAC010 : l'analyseur WinForms voudrait piloter le DPI par sa propriété
+         ApplicationHighDpiMode, qui ne s'applique qu'aux projets WinForms ayant
+         un Main généré. Ici l'interface est en WPF et le manifeste est le bon
+         endroit pour déclarer la conscience du DPI par écran. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

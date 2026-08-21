@@ -3,6 +3,11 @@
 Référence des fonctions du logiciel, module par module.
 Chemins relatifs à `dynamicisland@wiraxx.github.io/`.
 
+> Ce fichier décrit la version **GNOME**. La version **Windows** est une application distincte,
+> en C# / WPF, documentée dans [`windows/README.md`](windows/README.md) : elle reproduit le même
+> produit avec les API de Windows (SMTC, CoreAudio, WMI, `UserNotificationListener`) et ne partage
+> aucun code avec celle-ci.
+
 ---
 
 ## `extension.js` — cycle de vie

@@ -18,7 +18,8 @@ Chaque envoi de code déclenche une compilation sur GitHub :
 2. section **Artifacts** en bas → **DynamicIsland-windows-x64** ;
 3. décompresse, lance `DynamicIsland.exe`.
 
-L'exécutable est **autonome** : il n'y a ni installateur ni .NET à installer.
+L'exécutable est **autonome** : il n'y a ni installateur ni .NET à installer. En contrepartie il
+pèse environ 75 Mo, puisqu'il embarque tout le nécessaire d'exécution.
 
 Pour qu'il démarre avec Windows : clic droit sur la pilule → **Démarrer avec Windows** (une clé
 est écrite dans `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, rien n'est installé
