@@ -318,3 +318,27 @@
 .di-action-button:focus {
     background-color: rgba(255, 255, 255, 0.22);
 }
+
+/* --- Assistant IA ------------------------------------------------------- */
+
+.di-ai {
+    spacing: 8px;
+    padding: 10px 14px;
+}
+
+.di-ai-entry {
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 14px;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.di-ai-answer {
+    font-size: 12px;
+    padding: 2px 4px;
+}
+
+/* Contour lumineux, sous le contenu : seul le bord est dessiné. */
+.di-ai-glow {
+    border: 2px solid rgba(120, 170, 255, 0.85);
+}

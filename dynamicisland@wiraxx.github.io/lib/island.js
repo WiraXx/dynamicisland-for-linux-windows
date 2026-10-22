@@ -4,13 +4,16 @@
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import {AiAssistant} from './ai.js';
 import {MediaPlayer} from './mediaPlayer.js';
 import {NotificationWatcher} from './notifications.js';
 import {FileShelf} from './shelf.js';
@@ -28,7 +31,11 @@ const State = {
     NOTIFICATION: 'notification',
     OSD: 'osd',
     EXPANDED: 'expanded',
+    AI: 'ai',
 };
+
+/** Accélérateur de l'assistant : réservé à l'île, donc retiré du menu de fenêtre. */
+const WINDOW_MENU_KEY = 'activate-window-menu';
 
 const HISTORY_MAX = 5;
 const OSD_TIMEOUT = 1500;
@@ -72,6 +79,11 @@ class Island extends St.Widget {
         this._notifications = new NotificationWatcher(this._settings);
         this._shelf = new FileShelf(this._settings);
         this._shelfCount = this._shelf.uris.length;
+        this._ai = new AiAssistant(this._settings);
+        this._aiBusy = false;
+        this._aiLog = '';
+        this._glowing = false;
+        this._windowMenuSaved = null;
 
         this._buildViews();
 
@@ -104,6 +116,7 @@ class Island extends St.Widget {
 
         this._addChrome();
         this._installOsdHook();
+        this._bindShortcut();
         this._updateStyle();
         this._onMediaChanged();
     }
@@ -111,17 +124,56 @@ class Island extends St.Widget {
     // ------------------------------------------------------------------ vues
 
     _buildViews() {
+        // Halo qui pulse pendant que l'IA répond ; sous les contenus, il ne dessine que son contour.
+        this._glow = new St.Widget({style_class: 'di-ai-glow', reactive: false, opacity: 0,
+            x_expand: true, y_expand: true});
+        this.add_child(this._glow);
+
         this._compactView = this._buildCompactView();
         this._notificationView = this._buildNotificationView();
         this._osdView = new OsdRow();
         this._expandedView = this._buildExpandedView();
+        this._aiView = this._buildAiView();
 
-        this._views = [this._compactView, this._notificationView, this._osdView, this._expandedView];
+        this._views = [
+            this._compactView, this._notificationView, this._osdView,
+            this._expandedView, this._aiView,
+        ];
         for (const view of this._views) {
             view.opacity = 0;
             view.hide();
             this.add_child(view);
         }
+    }
+
+    _buildAiView() {
+        const view = vbox({style_class: 'di-ai', x_expand: true, y_expand: true});
+
+        this._aiEntry = new St.Entry({
+            style_class: 'di-ai-entry',
+            hint_text: 'Demande quelque chose…',
+            can_focus: true,
+            x_expand: true,
+        });
+        this._aiEntry.clutter_text.connect('activate', () => this._aiSubmit());
+        view.add_child(this._aiEntry);
+
+        this._aiAnswer = new St.Label({style_class: 'di-ai-answer', x_expand: true});
+        this._aiAnswer.clutter_text.line_wrap = true;
+        this._aiAnswer.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+
+        this._aiScroll = new St.ScrollView({
+            style_class: 'di-ai-scroll',
+            x_expand: true,
+            y_expand: true,
+            overlay_scrollbars: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+        });
+        this._aiScroll.set_child(this._aiAnswer);
+        view.add_child(this._aiScroll);
+
+        return view;
     }
 
     _buildCompactView() {
@@ -365,8 +417,10 @@ class Island extends St.Widget {
             const height = clamp(natural + 16, Math.max(pillHeight, 56), 160);
             return [panelWidth, height];
         }
-        case State.EXPANDED: {
-            const [, natural] = this._expandedView.get_preferred_height(panelWidth - CONTENT_PADDING);
+        case State.EXPANDED:
+        case State.AI: {
+            const view = state === State.AI ? this._aiView : this._expandedView;
+            const [, natural] = view.get_preferred_height(panelWidth - CONTENT_PADDING);
             const maximum = Math.min(this._settings.get_int('expanded-max-height'), monitor.height - 80);
             return [panelWidth, clamp(natural + 8, pillHeight, maximum)];
         }
@@ -410,7 +464,7 @@ class Island extends St.Widget {
         const [width, height] = this._targetSize(state, monitor);
         const [x, y] = this._targetPosition(width, height, monitor);
 
-        const radius = state === State.EXPANDED
+        const radius = state === State.EXPANDED || state === State.AI
             ? Math.min(EXPANDED_RADIUS, Math.round(height / 2))
             : Math.min(this._settings.get_int('corner-radius'), Math.round(height / 2));
         this._applyRadius(radius);
@@ -422,7 +476,7 @@ class Island extends St.Widget {
             return;
         this._geometry = geometry;
 
-        const expanding = state === State.EXPANDED || state === State.NOTIFICATION;
+        const expanding = state === State.EXPANDED || state === State.AI || state === State.NOTIFICATION;
         const duration = animate ? this._duration(expanding ? 340 : 260) : 0;
 
         this.remove_all_transitions();
@@ -458,6 +512,8 @@ class Island extends St.Widget {
             return this._osdView;
         case State.EXPANDED:
             return this._expandedView;
+        case State.AI:
+            return this._aiView;
         default:
             return null;
         }
@@ -489,6 +545,7 @@ class Island extends St.Widget {
 
     _applyRadius(radius) {
         this.set_style(`${this._baseStyle ?? ''} border-radius: ${radius}px;`);
+        this._glow.set_style(`border-radius: ${radius}px;`);
     }
 
     _updateStyle() {
@@ -533,9 +590,15 @@ class Island extends St.Widget {
         return this._media?.info ?? null;
     }
 
+    _isPanelOpen() {
+        return this._state === State.EXPANDED || this._state === State.AI;
+    }
+
     expand() {
         if (this._state === State.EXPANDED)
             return;
+        if (this._state === State.AI)
+            this.collapse();
 
         this._cancelNotificationTimer();
         this._resetScale();
@@ -550,21 +613,133 @@ class Island extends St.Widget {
     }
 
     collapse() {
-        if (this._state !== State.EXPANDED)
+        if (!this._isPanelOpen())
             return;
 
         this._removeCatcher();
         this._releaseGrab();
         this._stopClock();
         this._mediaCard.setPolling(false);
+        this._setGlow(false);
         this._setState(this._collapsedState());
     }
 
     toggle() {
-        if (this._state === State.EXPANDED)
+        if (this._isPanelOpen())
             this.collapse();
         else
             this.expand();
+    }
+
+    // ------------------------------------------------------------ assistant IA
+
+    /** Raccourci (Alt+Espace par défaut) : ouvre l'assistant, ou le referme. */
+    toggleAi() {
+        if (this._state === State.AI) {
+            this.collapse();
+            return;
+        }
+        if (!this._settings.get_boolean('ai-enabled'))
+            return;
+
+        this.collapse();
+        this._cancelNotificationTimer();
+        this._resetScale();
+        this._setState(State.AI);
+        this._addCatcher();
+        this._grabInput();
+        this._aiEntry.grab_key_focus();
+    }
+
+    /**
+     * Enregistre le raccourci auprès du shell. Alt+Espace est par défaut le
+     * menu de fenêtre de GNOME : on l'en retire le temps de l'extension.
+     */
+    _bindShortcut() {
+        Main.wm.addKeybinding('ai-shortcut', this._settings, Meta.KeyBindingFlags.NONE,
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+            () => this.toggleAi());
+
+        const shortcuts = this._settings.get_strv('ai-shortcut');
+        const wmSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.wm.keybindings'});
+        const current = wmSettings.get_strv(WINDOW_MENU_KEY);
+        if (!current.some(accel => shortcuts.includes(accel)))
+            return;
+
+        this._windowMenuSaved = current;
+        wmSettings.set_strv(WINDOW_MENU_KEY, current.filter(accel => !shortcuts.includes(accel)));
+    }
+
+    _unbindShortcut() {
+        Main.wm.removeKeybinding('ai-shortcut');
+        if (this._windowMenuSaved === null)
+            return;
+        new Gio.Settings({schema_id: 'org.gnome.desktop.wm.keybindings'})
+            .set_strv(WINDOW_MENU_KEY, this._windowMenuSaved);
+        this._windowMenuSaved = null;
+    }
+
+    _aiSubmit() {
+        const text = this._aiEntry.get_text().trim();
+        if (!text || this._aiBusy)
+            return;
+
+        this._aiEntry.set_text('');
+        this._aiBusy = true;
+        this._setGlow(true);
+        this._aiLog += `${this._aiLog ? '\n' : ''}› ${text}\n`;
+        this._aiShow('');
+
+        this._ai.ask(text,
+            token => this._aiShow(token),
+            () => this._aiFinish(),
+            message => {
+                this._aiLog += `⚠ ${message}\n`;
+                this._aiFinish();
+            });
+    }
+
+    _aiFinish() {
+        this._aiBusy = false;
+        this._setGlow(false);
+        this._aiShow('\n');
+    }
+
+    /** Ajoute un fragment au fil de réponse, puis agrandit la pilule si besoin. */
+    _aiShow(fragment) {
+        this._aiLog += fragment;
+        this._aiAnswer.text = this._aiLog;
+        if (this._state === State.AI)
+            this._applyState(State.AI, false);
+
+        const adjustment = this._aiScroll.vadjustment;
+        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            adjustment.value = adjustment.upper;
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /** Halo pulsant pendant que l'IA répond. */
+    _setGlow(on) {
+        this._glowing = on;
+        this._glow.remove_all_transitions();
+        if (!on) {
+            this._glow.ease({opacity: 0, duration: this._duration(200)});
+            return;
+        }
+
+        const pulse = () => {
+            this._glow.ease({
+                opacity: this._glow.opacity > 128 ? 40 : 255,
+                duration: this._duration(800),
+                mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
+                onComplete: () => {
+                    if (this._glowing)
+                        pulse();
+                },
+            });
+        };
+        this._glow.ease({opacity: 255, duration: this._duration(200), onComplete: pulse});
     }
 
     // ------------------------------------------------------------- contenus
@@ -891,7 +1066,7 @@ class Island extends St.Widget {
         // bouton, aucun curseur, aucune notification — c'est donc un clic sur
         // le fond, et il referme. Combiné au calque qui couvre l'écran, cliquer
         // n'importe où ferme le panneau.
-        if (this._state === State.EXPANDED) {
+        if (this._isPanelOpen()) {
             this.collapse();
             return Clutter.EVENT_STOP;
         }
@@ -943,7 +1118,7 @@ class Island extends St.Widget {
                 this._restartNotificationTimer();
         }
 
-        if (!this._settings.get_boolean('hover-peek') || this._state === State.EXPANDED) {
+        if (!this._settings.get_boolean('hover-peek') || this._isPanelOpen()) {
             this._resetScale();
             return;
         }
@@ -1083,7 +1258,7 @@ class Island extends St.Widget {
     }
 
     _onKeyPress(event) {
-        if (event.get_key_symbol() === Clutter.KEY_Escape && this._state === State.EXPANDED) {
+        if (event.get_key_symbol() === Clutter.KEY_Escape && this._isPanelOpen()) {
             this.collapse();
             return Clutter.EVENT_STOP;
         }
@@ -1153,6 +1328,10 @@ class Island extends St.Widget {
         this._removeOsdHook();
         this._removeCatcher();
         this._releaseGrab();
+        this._unbindShortcut();
+        this._glowing = false;
+        this._ai?.destroy();
+        this._ai = null;
         this._timeouts.destroy();
 
         for (const [source, id] of this._moduleIds ?? [])

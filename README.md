@@ -66,6 +66,13 @@ git pull && ./install.sh
 | **Clic droit** sur la pilule | Ouvre les réglages |
 | **Molette** sur la pilule | Règle le volume |
 | **Survol** | La pilule réagit légèrement |
+| **Alt+Espace** | Ouvre l'assistant IA (modèle local) |
+
+### Assistant IA
+
+Prérequis : [llama.cpp](https://github.com/ggml-org/llama.cpp) (commande `llama-server`) et `curl`.
+Dans les réglages, onglet **Assistant IA** : active l'assistant puis clique sur **Télécharger**
+(par défaut Qwen2.5 0,5B, environ 400 Mo). Le modèle tourne entièrement sur ta machine.
 
 ### Ce que l'île sait faire
 

@@ -11,6 +11,8 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
+import {downloadModel, isModelInstalled} from './lib/model.js';
+
 const POSITIONS = [
     ['top-left', 'Haut gauche'],
     ['top-center', 'Haut centre'],
@@ -302,6 +304,43 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
         window.add(this._appearancePage(settings));
         window.add(this._shortcutsPage(settings));
         window.add(this._behaviourPage(settings));
+        window.add(this._aiPage(settings));
+    }
+
+    _aiPage(settings) {
+        const p = page('Assistant IA', 'applications-science-symbolic');
+
+        const general = group('Assistant', 'Un modèle local : tes questions ne quittent pas ta machine. '
+            + 'Raccourci : Alt+Espace (modifiable avec dconf-editor, clé ai-shortcut).');
+        general.add(switchRow(settings, 'ai-enabled', 'Activer l’assistant'));
+        p.add(general);
+
+        const model = group('Modèle', 'Nécessite llama.cpp (commande llama-server) et curl.');
+        const urlRow = new Adw.ActionRow({title: 'URL du modèle (GGUF)'});
+        const urlEntry = new Gtk.Entry({valign: Gtk.Align.CENTER, width_chars: 32});
+        settings.bind('ai-model-url', urlEntry, 'text', Gio.SettingsBindFlags.DEFAULT);
+        urlRow.add_suffix(urlEntry);
+        model.add(urlRow);
+
+        const downloadRow = new Adw.ActionRow({title: 'Téléchargement'});
+        const button = new Gtk.Button({valign: Gtk.Align.CENTER, label: 'Télécharger'});
+        const refresh = (message = null) => {
+            downloadRow.subtitle = message ?? (isModelInstalled(settings) ? 'Modèle installé' : 'Non installé');
+        };
+        button.connect('clicked', () => {
+            button.sensitive = false;
+            refresh('Téléchargement en cours…');
+            downloadModel(settings, error => {
+                button.sensitive = true;
+                refresh(error ? `Échec : ${error}` : null);
+            });
+        });
+        downloadRow.add_suffix(button);
+        model.add(downloadRow);
+        refresh();
+
+        p.add(model);
+        return p;
     }
 
     _positionPage(settings) {
