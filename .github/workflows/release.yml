@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag de la release (ex. v1.1.0)'
+        required: true
+        default: 'v1.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Executable Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publier un executable autonome
+        run: >
+          dotnet publish windows/DynamicIsland/DynamicIsland.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: publish/DynamicIsland.exe
+          if-no-files-found: error
+
+  linux:
+    name: Extension GNOME
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer les outils
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-bin zip
+
+      - name: Compiler le schema GSettings
+        run: >
+          glib-compile-schemas --strict
+          dynamicisland@wiraxx.github.io/schemas
+
+      - name: Empaqueter l'extension
+        run: >
+          cd dynamicisland@wiraxx.github.io &&
+          zip -r "$GITHUB_WORKSPACE/dynamicisland-gnome.zip" . -x "*.git*"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dynamicisland-gnome.zip
+          if-no-files-found: error
+
+  release:
+    name: Publier la release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Renommer l'executable
+        run: mv assets/DynamicIsland.exe assets/DynamicIsland-windows-x64.exe
+
+      - name: Creer la release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            assets/DynamicIsland-windows-x64.exe
+            assets/dynamicisland-gnome.zip
