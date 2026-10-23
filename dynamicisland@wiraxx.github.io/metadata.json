@@ -6,5 +6,5 @@
   "url": "https://github.com/WiraXx/dynamicisland-for-Linux",
   "settings-schema": "org.gnome.shell.extensions.dynamicisland",
   "gettext-domain": "dynamicisland",
-  "version-name": "1.0.0"
+  "version-name": "1.1.0"
 }
