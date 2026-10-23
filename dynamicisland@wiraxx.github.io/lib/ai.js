@@ -1,10 +1,13 @@
 /* Moteur de l'assistant : lance `llama-server` (llama.cpp) sur le modèle
  * téléchargé, puis lui envoie les questions et lit la réponse au fil de l'eau.
+ *
+ * Soup n'est pas une dépendance de gnome-shell : son typelib peut manquer sur
+ * certains systèmes. On le charge donc à la demande, au premier message, pour
+ * qu'une absence n'empêche jamais l'île elle-même d'apparaître.
  */
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import Soup from 'gi://Soup?version=3.0';
 
 import {isModelInstalled, modelPath} from './model.js';
 
@@ -17,9 +20,20 @@ export class AiAssistant {
     constructor(settings) {
         this._settings = settings;
         this._process = null;
-        this._session = new Soup.Session();
+        this._soup = null;
+        this._session = null;
         this._cancellable = new Gio.Cancellable();
         this._history = [];
+    }
+
+    /** Charge libsoup au premier besoin ; rejette si le typelib est absent. */
+    async _ensureSoup() {
+        if (this._soup)
+            return this._soup;
+        const module = await import('gi://Soup?version=3.0');
+        this._soup = module.default;
+        this._session = new this._soup.Session();
+        return this._soup;
     }
 
     /**
@@ -32,34 +46,37 @@ export class AiAssistant {
             onError(message);
         };
 
-        try {
-            this._startServer();
-        } catch (error) {
-            onError(error.message);
-            return;
-        }
-
         this._history.push({role: 'user', content: text});
-        const body = JSON.stringify({
-            messages: [{role: 'system', content: SYSTEM_PROMPT}, ...this._history],
-            stream: true,
-            temperature: 0.7,
-        });
 
-        let answer = '';
-        this._post(body, 0, stream => {
-            this._readStream(stream,
-                token => {
-                    answer += token;
-                    onToken(token);
-                },
-                () => {
-                    this._history.push({role: 'assistant', content: answer});
-                    this._history = this._history.slice(-HISTORY_MAX);
-                    onDone();
-                },
-                fail);
-        }, fail);
+        this._ensureSoup().then(() => {
+            try {
+                this._startServer();
+            } catch (error) {
+                fail(error.message);
+                return;
+            }
+
+            const body = JSON.stringify({
+                messages: [{role: 'system', content: SYSTEM_PROMPT}, ...this._history],
+                stream: true,
+                temperature: 0.7,
+            });
+
+            let answer = '';
+            this._post(body, 0, stream => {
+                this._readStream(stream,
+                    token => {
+                        answer += token;
+                        onToken(token);
+                    },
+                    () => {
+                        this._history.push({role: 'assistant', content: answer});
+                        this._history = this._history.slice(-HISTORY_MAX);
+                        onDone();
+                    },
+                    fail);
+            }, fail);
+        }).catch(() => fail('bibliothèque libsoup3 introuvable : installe « gir1.2-soup-3.0 »'));
     }
 
     /** Lance le serveur au premier besoin ; il reste actif jusqu'à destroy(). */
@@ -82,6 +99,7 @@ export class AiAssistant {
 
     /** Envoie la requête ; le serveur met quelques secondes à charger le modèle, d'où les nouvelles tentatives. */
     _post(body, attempt, onStream, onError) {
+        const Soup = this._soup;
         const message = Soup.Message.new('POST', `http://127.0.0.1:${PORT}/v1/chat/completions`);
         message.set_request_body_from_bytes('application/json',
             GLib.Bytes.new(new TextEncoder().encode(body)));
@@ -164,7 +182,7 @@ export class AiAssistant {
 
     destroy() {
         this._cancellable.cancel();
-        this._session.abort();
+        this._session?.abort();
         if (this._process && !this._process.get_if_exited())
             this._process.force_exit();
         this._process = null;

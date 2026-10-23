@@ -79,7 +79,12 @@ class Island extends St.Widget {
         this._notifications = new NotificationWatcher(this._settings);
         this._shelf = new FileShelf(this._settings);
         this._shelfCount = this._shelf.uris.length;
-        this._ai = new AiAssistant(this._settings);
+        try {
+            this._ai = new AiAssistant(this._settings);
+        } catch (error) {
+            logError(error, 'Dynamic Island: assistant IA indisponible');
+            this._ai = null;
+        }
         this._aiBusy = false;
         this._aiLog = '';
         this._glowing = false;
@@ -639,7 +644,7 @@ class Island extends St.Widget {
             this.collapse();
             return;
         }
-        if (!this._settings.get_boolean('ai-enabled'))
+        if (!this._settings.get_boolean('ai-enabled') || !this._ai)
             return;
 
         this.collapse();
@@ -656,22 +661,32 @@ class Island extends St.Widget {
      * menu de fenêtre de GNOME : on l'en retire le temps de l'extension.
      */
     _bindShortcut() {
-        Main.wm.addKeybinding('ai-shortcut', this._settings, Meta.KeyBindingFlags.NONE,
-            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
-            () => this.toggleAi());
+        // Un schéma pas encore recompilé (mise à jour partielle) ou un
+        // raccourci déjà pris ne doivent jamais empêcher l'île d'apparaître.
+        try {
+            Main.wm.addKeybinding('ai-shortcut', this._settings, Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+                () => this.toggleAi());
 
-        const shortcuts = this._settings.get_strv('ai-shortcut');
-        const wmSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.wm.keybindings'});
-        const current = wmSettings.get_strv(WINDOW_MENU_KEY);
-        if (!current.some(accel => shortcuts.includes(accel)))
-            return;
+            const shortcuts = this._settings.get_strv('ai-shortcut');
+            const wmSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.wm.keybindings'});
+            const current = wmSettings.get_strv(WINDOW_MENU_KEY);
+            if (!current.some(accel => shortcuts.includes(accel)))
+                return;
 
-        this._windowMenuSaved = current;
-        wmSettings.set_strv(WINDOW_MENU_KEY, current.filter(accel => !shortcuts.includes(accel)));
+            this._windowMenuSaved = current;
+            wmSettings.set_strv(WINDOW_MENU_KEY, current.filter(accel => !shortcuts.includes(accel)));
+        } catch (error) {
+            logError(error, 'Dynamic Island: raccourci de l\'assistant IA non installé');
+        }
     }
 
     _unbindShortcut() {
-        Main.wm.removeKeybinding('ai-shortcut');
+        try {
+            Main.wm.removeKeybinding('ai-shortcut');
+        } catch (error) {
+            logError(error, 'Dynamic Island: retrait du raccourci');
+        }
         if (this._windowMenuSaved === null)
             return;
         new Gio.Settings({schema_id: 'org.gnome.desktop.wm.keybindings'})
@@ -681,7 +696,7 @@ class Island extends St.Widget {
 
     _aiSubmit() {
         const text = this._aiEntry.get_text().trim();
-        if (!text || this._aiBusy)
+        if (!text || this._aiBusy || !this._ai)
             return;
 
         this._aiEntry.set_text('');
