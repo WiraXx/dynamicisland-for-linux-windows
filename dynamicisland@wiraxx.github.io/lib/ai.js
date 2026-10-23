@@ -9,17 +9,30 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-import {isModelInstalled, modelPath} from './model.js';
+import {describeAction, extractAction, runAction} from './actions.js';
+import {isInstalled, pathForSetting} from './model.js';
 
 const PORT = 8765;
+const VISION_PORT = 8766;
 const HISTORY_MAX = 10;
 const START_ATTEMPTS = 40;
-const SYSTEM_PROMPT = 'Tu es un assistant concis. Réponds en français, en quelques phrases.';
+// Un modèle de vision est plus lourd à charger qu'un modèle de conversation.
+const VISION_START_ATTEMPTS = 90;
+const SYSTEM_PROMPT = 'Tu es un assistant concis, en français, en quelques phrases. '
+    + 'Si on te demande de lire un fichier, de chercher des fichiers, d\'ouvrir une '
+    + 'application, de faire une recherche web ou de regarder ce qui est affiché à '
+    + 'l\'écran, réponds uniquement par une ligne au format ACTION: nom("argument"), '
+    + 'où nom vaut read_file, search_files, open_app, web_search ou read_screen '
+    + '(sans argument utile pour celle-ci, laisse "" ). N\'utilise une action que si '
+    + 'elle est vraiment utile ; sinon réponds normalement, sans jamais inventer de '
+    + 'résultat toi-même.';
+const VISION_PROMPT = 'Décris brièvement et en français ce que montre cette capture d\'écran.';
 
 export class AiAssistant {
     constructor(settings) {
         this._settings = settings;
         this._process = null;
+        this._visionProcess = null;
         this._soup = null;
         this._session = null;
         this._cancellable = new Gio.Cancellable();
@@ -39,6 +52,9 @@ export class AiAssistant {
     /**
      * Envoie `text`. `onToken` reçoit chaque fragment de réponse, `onDone`
      * est appelé une fois la réponse complète, `onError` en cas d'échec.
+     * Si le modèle demande une action (lecture de fichier, recherche…), elle
+     * est exécutée puis le modèle en commente le résultat en une seconde
+     * passe — jamais plus d'une action par message envoyé.
      */
     ask(text, onToken, onDone, onError) {
         const fail = message => {
@@ -55,36 +71,66 @@ export class AiAssistant {
                 fail(error.message);
                 return;
             }
-
-            const body = JSON.stringify({
-                messages: [{role: 'system', content: SYSTEM_PROMPT}, ...this._history],
-                stream: true,
-                temperature: 0.7,
-            });
-
-            let answer = '';
-            this._post(body, 0, stream => {
-                this._readStream(stream,
-                    token => {
-                        answer += token;
-                        onToken(token);
-                    },
-                    () => {
-                        this._history.push({role: 'assistant', content: answer});
-                        this._history = this._history.slice(-HISTORY_MAX);
-                        onDone();
-                    },
-                    fail);
-            }, fail);
+            this._completeAndAct(onToken, onDone, fail, 0);
         }).catch(() => fail('bibliothèque libsoup3 introuvable : installe « gir1.2-soup-3.0 »'));
     }
 
-    /** Lance le serveur au premier besoin ; il reste actif jusqu'à destroy(). */
+    /** Une passe de complétion ; `depth` vaut 1 une fois une action déjà exécutée. */
+    _completeAndAct(onToken, onDone, onError, depth) {
+        const body = JSON.stringify({
+            messages: [{role: 'system', content: SYSTEM_PROMPT}, ...this._history],
+            stream: true,
+            temperature: 0.7,
+        });
+
+        let answer = '';
+        this._post(PORT, this._process, body, 0, START_ATTEMPTS, stream => {
+            this._readStream(stream,
+                token => {
+                    answer += token;
+                    onToken(token);
+                },
+                () => this._afterCompletion(answer, onToken, onDone, onError, depth),
+                onError);
+        }, onError);
+    }
+
+    _afterCompletion(answer, onToken, onDone, onError, depth) {
+        this._history.push({role: 'assistant', content: answer});
+        this._history = this._history.slice(-HISTORY_MAX);
+
+        const action = depth === 0 ? extractAction(answer) : null;
+        if (!action) {
+            onDone();
+            return;
+        }
+
+        onToken(`\n\n⚙ ${describeAction(action)}\n`);
+        this._runAndDescribe(action).then(result => {
+            this._history.push({role: 'user', content: `[Résultat] ${result}`});
+            this._completeAndAct(onToken, onDone, onError, depth + 1);
+        }).catch(error => {
+            this._history.push({role: 'user', content: `[Résultat] échec : ${error.message}`});
+            onToken(`⚠ ${error.message}\n`);
+            onDone();
+        });
+    }
+
+    /** `read_screen` renvoie un chemin d'image : il faut encore la faire décrire par le modèle de vision. */
+    _runAndDescribe(action) {
+        if (action.type !== 'read_screen')
+            return runAction(action);
+
+        return runAction(action).then(path =>
+            this._describeImage(path).finally(() => GLib.unlink(path)));
+    }
+
+    /** Lance le serveur de conversation au premier besoin ; il reste actif jusqu'à destroy(). */
     _startServer() {
         if (this._process && !this._process.get_if_exited())
             return;
 
-        if (!isModelInstalled(this._settings))
+        if (!isInstalled(this._settings, 'ai-model-url'))
             throw new Error('modèle absent : télécharge-le dans les réglages');
 
         const binary = GLib.find_program_in_path('llama-server');
@@ -92,15 +138,78 @@ export class AiAssistant {
             throw new Error('llama-server introuvable : installe llama.cpp');
 
         this._process = Gio.Subprocess.new([
-            binary, '--model', modelPath(this._settings),
+            binary, '--model', pathForSetting(this._settings, 'ai-model-url'),
             '--host', '127.0.0.1', '--port', String(PORT), '--ctx-size', '2048',
         ], Gio.SubprocessFlags.NONE);
     }
 
-    /** Envoie la requête ; le serveur met quelques secondes à charger le modèle, d'où les nouvelles tentatives. */
-    _post(body, attempt, onStream, onError) {
+    /** Lance le serveur de vision (--mmproj) au premier besoin ; distinct du serveur de conversation. */
+    _startVisionServer() {
+        if (this._visionProcess && !this._visionProcess.get_if_exited())
+            return;
+
+        if (!isInstalled(this._settings, 'ai-vision-model-url') ||
+            !isInstalled(this._settings, 'ai-vision-mmproj-url')) {
+            throw new Error('modèle de vision absent : configure-le dans les réglages '
+                + '(section Assistant IA, sous-section Vision)');
+        }
+
+        const binary = GLib.find_program_in_path('llama-server');
+        if (!binary)
+            throw new Error('llama-server introuvable : installe llama.cpp');
+
+        this._visionProcess = Gio.Subprocess.new([
+            binary,
+            '--model', pathForSetting(this._settings, 'ai-vision-model-url'),
+            '--mmproj', pathForSetting(this._settings, 'ai-vision-mmproj-url'),
+            '--host', '127.0.0.1', '--port', String(VISION_PORT), '--ctx-size', '4096',
+        ], Gio.SubprocessFlags.NONE);
+    }
+
+    /** Lit le fichier image, démarre le serveur de vision et en récupère une description. */
+    _describeImage(path) {
+        return new Promise((resolve, reject) => {
+            let contents;
+            try {
+                this._startVisionServer();
+                [, contents] = GLib.file_get_contents(path);
+            } catch (error) {
+                reject(error);
+                return;
+            }
+
+            const body = JSON.stringify({
+                messages: [{
+                    role: 'user',
+                    content: [
+                        {type: 'text', text: VISION_PROMPT},
+                        {type: 'image_url', image_url: {
+                            url: `data:image/png;base64,${GLib.base64_encode(contents)}`,
+                        }},
+                    ],
+                }],
+                stream: true,
+                temperature: 0.4,
+            });
+
+            let answer = '';
+            this._post(VISION_PORT, this._visionProcess, body, 0, VISION_START_ATTEMPTS, stream => {
+                this._readStream(stream,
+                    token => { answer += token; },
+                    () => resolve(answer.trim() || '(aucune description)'),
+                    message => reject(new Error(message)));
+            }, message => reject(new Error(message)));
+        });
+    }
+
+    /**
+     * Envoie la requête au serveur du port donné ; celui-ci met un moment à charger
+     * son modèle au premier appel, d'où les nouvelles tentatives tant qu'il tourne
+     * encore mais ne répond pas.
+     */
+    _post(port, process, body, attempt, maxAttempts, onStream, onError) {
         const Soup = this._soup;
-        const message = Soup.Message.new('POST', `http://127.0.0.1:${PORT}/v1/chat/completions`);
+        const message = Soup.Message.new('POST', `http://127.0.0.1:${port}/v1/chat/completions`);
         message.set_request_body_from_bytes('application/json',
             GLib.Bytes.new(new TextEncoder().encode(body)));
 
@@ -109,15 +218,15 @@ export class AiAssistant {
             try {
                 stream = session.send_finish(res);
             } catch (error) {
-                const starting = this._process && !this._process.get_if_exited();
-                if (starting && attempt < START_ATTEMPTS && !this._cancellable.is_cancelled()) {
+                const starting = process && !process.get_if_exited();
+                if (starting && attempt < maxAttempts && !this._cancellable.is_cancelled()) {
                     GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                        this._post(body, attempt + 1, onStream, onError);
+                        this._post(port, process, body, attempt + 1, maxAttempts, onStream, onError);
                         return GLib.SOURCE_REMOVE;
                     });
                     return;
                 }
-                onError(this._process?.get_if_exited()
+                onError(process?.get_if_exited()
                     ? 'llama-server s\'est arrêté'
                     : error.message);
                 return;
@@ -185,6 +294,9 @@ export class AiAssistant {
         this._session?.abort();
         if (this._process && !this._process.get_if_exited())
             this._process.force_exit();
+        if (this._visionProcess && !this._visionProcess.get_if_exited())
+            this._visionProcess.force_exit();
         this._process = null;
+        this._visionProcess = null;
     }
 }

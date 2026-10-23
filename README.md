@@ -74,6 +74,17 @@ Prérequis : [llama.cpp](https://github.com/ggml-org/llama.cpp) (commande `llama
 Dans les réglages, onglet **Assistant IA** : active l'assistant puis clique sur **Télécharger**
 (par défaut Qwen2.5 0,5B, environ 400 Mo). Le modèle tourne entièrement sur ta machine.
 
+L'assistant peut aussi agir, de lui-même, quand c'est utile à sa réponse — jamais de commande
+arbitraire, seulement ces quatre gestes précis :
+- lire un fichier (sous ton dossier personnel uniquement) ;
+- chercher des fichiers par nom ;
+- ouvrir une application déjà installée ;
+- lancer une recherche web dans ton navigateur par défaut ;
+- **regarder l'écran** et le décrire, si un second modèle de **vision** est configuré
+  (section **Vision** des réglages — cherche par exemple « moondream2 gguf » sur Hugging Face,
+  colle le lien du modèle *et* celui de son projecteur « mmproj »). Plus lourd qu'un modèle de
+  conversation ordinaire, il ne se télécharge que si tu le demandes explicitement.
+
 ### Ce que l'île sait faire
 
 - **Notifications** — elles apparaissent *dans* la pilule, en haut de l'écran : l'île s'élargit,

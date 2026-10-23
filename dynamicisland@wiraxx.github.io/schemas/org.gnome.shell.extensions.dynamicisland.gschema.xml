@@ -168,5 +168,13 @@
       <default>'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf'</default>
       <summary>URL du modèle au format GGUF</summary>
     </key>
+    <key name="ai-vision-model-url" type="s">
+      <default>''</default>
+      <summary>URL du modèle de vision (GGUF), pour l'action qui décrit l'écran</summary>
+    </key>
+    <key name="ai-vision-mmproj-url" type="s">
+      <default>''</default>
+      <summary>URL du projecteur « mmproj » associé au modèle de vision</summary>
+    </key>
   </schema>
 </schemalist>

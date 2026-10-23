@@ -11,7 +11,7 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {downloadModel, isModelInstalled} from './lib/model.js';
+import {downloadFile, isInstalled} from './lib/model.js';
 
 const POSITIONS = [
     ['top-left', 'Haut gauche'],
@@ -286,6 +286,29 @@ function appShortcutsGroup(settings) {
     return group;
 }
 
+/** Un champ d'URL et un bouton de téléchargement, pour un fichier de modèle donné. */
+function downloadRow(settings, urlKey, title) {
+    const row = new Adw.ActionRow({title});
+    const entry = new Gtk.Entry({valign: Gtk.Align.CENTER, width_chars: 30});
+    settings.bind(urlKey, entry, 'text', Gio.SettingsBindFlags.DEFAULT);
+    const button = new Gtk.Button({valign: Gtk.Align.CENTER, label: 'Télécharger'});
+    const refresh = (message = null) => {
+        row.subtitle = message ?? (isInstalled(settings, urlKey) ? 'Installé' : 'Non installé');
+    };
+    button.connect('clicked', () => {
+        button.sensitive = false;
+        refresh('Téléchargement en cours…');
+        downloadFile(settings, urlKey, error => {
+            button.sensitive = true;
+            refresh(error ? `Échec : ${error}` : null);
+        });
+    });
+    row.add_suffix(entry);
+    row.add_suffix(button);
+    refresh();
+    return row;
+}
+
 function page(title, iconName) {
     return new Adw.PreferencesPage({title, icon_name: iconName});
 }
@@ -315,31 +338,18 @@ export default class DynamicIslandPreferences extends ExtensionPreferences {
         general.add(switchRow(settings, 'ai-enabled', 'Activer l’assistant'));
         p.add(general);
 
-        const model = group('Modèle', 'Nécessite llama.cpp (commande llama-server) et curl.');
-        const urlRow = new Adw.ActionRow({title: 'URL du modèle (GGUF)'});
-        const urlEntry = new Gtk.Entry({valign: Gtk.Align.CENTER, width_chars: 32});
-        settings.bind('ai-model-url', urlEntry, 'text', Gio.SettingsBindFlags.DEFAULT);
-        urlRow.add_suffix(urlEntry);
-        model.add(urlRow);
-
-        const downloadRow = new Adw.ActionRow({title: 'Téléchargement'});
-        const button = new Gtk.Button({valign: Gtk.Align.CENTER, label: 'Télécharger'});
-        const refresh = (message = null) => {
-            downloadRow.subtitle = message ?? (isModelInstalled(settings) ? 'Modèle installé' : 'Non installé');
-        };
-        button.connect('clicked', () => {
-            button.sensitive = false;
-            refresh('Téléchargement en cours…');
-            downloadModel(settings, error => {
-                button.sensitive = true;
-                refresh(error ? `Échec : ${error}` : null);
-            });
-        });
-        downloadRow.add_suffix(button);
-        model.add(downloadRow);
-        refresh();
-
+        const model = group('Modèle de conversation', 'Nécessite llama.cpp (commande llama-server) et curl.');
+        model.add(downloadRow(settings, 'ai-model-url', 'URL du modèle (GGUF)'));
         p.add(model);
+
+        const vision = group('Vision (optionnel)',
+            'Permet à l’assistant de regarder l’écran, sur demande. Nécessite deux fichiers : '
+            + 'un modèle GGUF et son projecteur « mmproj » — cherche par exemple « moondream2 gguf » '
+            + 'sur Hugging Face et colle les deux liens.');
+        vision.add(downloadRow(settings, 'ai-vision-model-url', 'URL du modèle (GGUF)'));
+        vision.add(downloadRow(settings, 'ai-vision-mmproj-url', 'URL du projecteur (mmproj)'));
+        p.add(vision);
+
         return p;
     }
 

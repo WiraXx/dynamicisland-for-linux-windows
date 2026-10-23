@@ -1,4 +1,6 @@
-/* Emplacement et téléchargement du modèle d'IA locale.
+/* Emplacement et téléchargement des modèles d'IA locale : le modèle de
+ * conversation, et optionnellement un modèle de vision (GGUF + projecteur
+ * « mmproj ») pour l'action qui décrit l'écran.
  *
  * Ce module ne dépend que de GLib et Gio : il sert aussi à la fenêtre de
  * réglages, qui tourne dans un autre processus que le shell.
@@ -11,29 +13,46 @@ export function modelDir() {
     return GLib.build_filenamev([GLib.get_user_data_dir(), 'dynamicisland', 'models']);
 }
 
-export function modelPath(settings) {
-    const url = settings.get_string('ai-model-url');
+/** Chemin local du fichier dont l'URL est rangée dans la clé `urlKey`, ou null si vide. */
+export function pathForSetting(settings, urlKey) {
+    const url = settings.get_string(urlKey);
+    if (!url)
+        return null;
     return GLib.build_filenamev([modelDir(), GLib.path_get_basename(url)]);
 }
 
+export function isInstalled(settings, urlKey) {
+    const path = pathForSetting(settings, urlKey);
+    return Boolean(path) && GLib.file_test(path, GLib.FileTest.EXISTS);
+}
+
+// Conservés pour le modèle de conversation : ce sont les seuls appels déjà en place ailleurs.
+export function modelPath(settings) {
+    return pathForSetting(settings, 'ai-model-url');
+}
+
 export function isModelInstalled(settings) {
-    return GLib.file_test(modelPath(settings), GLib.FileTest.EXISTS);
+    return isInstalled(settings, 'ai-model-url');
 }
 
 /**
- * Télécharge le modèle avec curl, dans un fichier .part renommé à la fin :
- * un téléchargement interrompu ne laisse jamais un modèle invalide.
- * `onDone(error)` reçoit null en cas de succès.
+ * Télécharge le fichier dont l'URL est rangée dans `urlKey`, avec curl, dans
+ * un fichier .part renommé à la fin : un téléchargement interrompu ne laisse
+ * jamais un fichier invalide. `onDone(error)` reçoit null en cas de succès.
  */
-export function downloadModel(settings, onDone) {
-    const target = modelPath(settings);
+export function downloadFile(settings, urlKey, onDone) {
+    const target = pathForSetting(settings, urlKey);
+    if (!target) {
+        onDone('URL vide');
+        return;
+    }
     const partial = `${target}.part`;
 
     try {
         GLib.mkdir_with_parents(modelDir(), 0o755);
         const process = Gio.Subprocess.new(
             ['curl', '--location', '--fail', '--silent', '--show-error',
-                '--output', partial, settings.get_string('ai-model-url')],
+                '--output', partial, settings.get_string(urlKey)],
             Gio.SubprocessFlags.STDERR_PIPE);
 
         process.communicate_utf8_async(null, null, (proc, res) => {
@@ -42,7 +61,7 @@ export function downloadModel(settings, onDone) {
                 if (!proc.get_successful())
                     throw new Error(stderr.trim() || 'téléchargement échoué');
                 if (GLib.rename(partial, target) !== 0)
-                    throw new Error('impossible de ranger le modèle');
+                    throw new Error('impossible de ranger le fichier');
                 onDone(null);
             } catch (error) {
                 GLib.unlink(partial);
@@ -52,4 +71,8 @@ export function downloadModel(settings, onDone) {
     } catch (error) {
         onDone(error.message);
     }
+}
+
+export function downloadModel(settings, onDone) {
+    downloadFile(settings, 'ai-model-url', onDone);
 }
