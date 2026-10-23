@@ -138,12 +138,21 @@ class Island extends St.Widget {
         this._notificationView = this._buildNotificationView();
         this._osdView = new OsdRow();
         this._expandedView = this._buildExpandedView();
-        this._aiView = this._buildAiView();
+
+        // Une vue en moins ne doit jamais empêcher les autres d'exister : un
+        // problème dans le panneau IA ne doit plus jamais faire disparaître la
+        // pilule elle-même.
+        try {
+            this._aiView = this._buildAiView();
+        } catch (error) {
+            logError(error, 'Dynamic Island: panneau de l\'assistant IA indisponible');
+            this._aiView = null;
+        }
 
         this._views = [
             this._compactView, this._notificationView, this._osdView,
             this._expandedView, this._aiView,
-        ];
+        ].filter(view => view !== null);
         for (const view of this._views) {
             view.opacity = 0;
             view.hide();
@@ -637,7 +646,7 @@ class Island extends St.Widget {
             this.collapse();
             return;
         }
-        if (!this._settings.get_boolean('ai-enabled') || !this._ai)
+        if (!this._settings.get_boolean('ai-enabled') || !this._ai || !this._aiView)
             return;
 
         this.collapse();
