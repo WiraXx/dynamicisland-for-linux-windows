@@ -175,7 +175,13 @@ class Island extends St.Widget {
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
         });
-        this._aiScroll.set_child(this._aiAnswer);
+        // Depuis GNOME 46, St.ScrollView n'accepte qu'un enfant St.Scrollable ;
+        // ni St.Label ni St.BoxLayout ne l'implémentent, il faut St.Viewport
+        // (absent avant GNOME 46, où le comportement précédent suffit).
+        const scrolled = typeof St.Viewport === 'function'
+            ? new St.Viewport({child: this._aiAnswer})
+            : this._aiAnswer;
+        this._aiScroll.set_child(scrolled);
         view.add_child(this._aiScroll);
 
         return view;
