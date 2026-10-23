@@ -19,8 +19,9 @@ import {NotificationWatcher} from './notifications.js';
 import {FileShelf} from './shelf.js';
 import {SystemControls} from './system.js';
 import {
-    AlbumArt, AppShortcuts, Equalizer, MediaCard, MediaControls, NotificationRow, OsdRow,
-    ShelfRow, SliderRow, makeActionButtons, makeIconButton, makeNotificationIcon,
+    AiBubble, AlbumArt, AppShortcuts, Equalizer, MediaCard, MediaControls, NotificationRow,
+    OsdRow, ShelfRow, SliderRow, ThinkingDots, makeActionButtons, makeIconButton,
+    makeNotificationIcon,
 } from './widgets.js';
 import {TimeoutPool, clamp, formatNow, hbox, toRgba, vbox} from './utils.js';
 
@@ -41,6 +42,13 @@ const HISTORY_MAX = 5;
 const OSD_TIMEOUT = 1500;
 const CONTENT_PADDING = 28;
 const EXPANDED_RADIUS = 26;
+
+/** Dégradé bleu → violet → rose, façon indicateur Siri, pour le halo de l'IA. */
+const SIRI_COLORS = [
+    'rgba(94, 151, 246, 0.85)',
+    'rgba(171, 115, 245, 0.85)',
+    'rgba(245, 115, 199, 0.85)',
+];
 
 export const Island = GObject.registerClass(
 class Island extends St.Widget {
@@ -86,7 +94,7 @@ class Island extends St.Widget {
             this._ai = null;
         }
         this._aiBusy = false;
-        this._aiLog = '';
+        this._aiAnswerText = '';
         this._glowing = false;
         this._windowMenuSaved = null;
 
@@ -160,8 +168,29 @@ class Island extends St.Widget {
         }
     }
 
+    /**
+     * Panneau façon Siri : en-tête avec icône et indicateur « en train de
+     * réfléchir », fil de bulles de conversation, champ de saisie en bas.
+     * Pas de St.ScrollView : son contrat d'enfant (St.Scrollable) varie trop
+     * d'une version de GNOME à l'autre. Le fil grandit normalement ; la
+     * hauteur maximale du panneau le borne déjà, comme le reste de l'île.
+     */
     _buildAiView() {
         const view = vbox({style_class: 'di-ai', x_expand: true, y_expand: true});
+
+        const header = hbox({style_class: 'di-ai-header', x_expand: true});
+        header.add_child(new St.Icon({
+            style_class: 'di-ai-spark', icon_name: 'starred-symbolic', icon_size: 15,
+        }));
+        const headerTitle = new St.Label({style_class: 'di-ai-title', text: 'Assistant', x_expand: true});
+        header.add_child(headerTitle);
+        this._aiDots = new ThinkingDots();
+        header.add_child(this._aiDots);
+        view.add_child(header);
+
+        this._aiThread = vbox({style_class: 'di-ai-thread', x_expand: true, y_expand: true});
+        view.add_child(this._aiThread);
+        this._aiBubble = null;
 
         this._aiEntry = new St.Entry({
             style_class: 'di-ai-entry',
@@ -171,14 +200,6 @@ class Island extends St.Widget {
         });
         this._aiEntry.clutter_text.connect('activate', () => this._aiSubmit());
         view.add_child(this._aiEntry);
-
-        // Pas de St.ScrollView : son contrat d'enfant (St.Scrollable) varie trop
-        // d'une version de GNOME à l'autre. Comme le reste du panneau, le texte
-        // grandit normalement ; la hauteur maximale du panneau le borne déjà.
-        this._aiAnswer = new St.Label({style_class: 'di-ai-answer', x_expand: true, y_expand: true});
-        this._aiAnswer.clutter_text.line_wrap = true;
-        this._aiAnswer.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
-        view.add_child(this._aiAnswer);
 
         return view;
     }
@@ -552,7 +573,14 @@ class Island extends St.Widget {
 
     _applyRadius(radius) {
         this.set_style(`${this._baseStyle ?? ''} border-radius: ${radius}px;`);
-        this._glow.set_style(`border-radius: ${radius}px;`);
+        this._glowRadius = radius;
+        this._updateGlowStyle();
+    }
+
+    /** Recombine rayon et teinte du halo : les deux sont posés par des appels distincts. */
+    _updateGlowStyle() {
+        const color = this._glowColor ?? SIRI_COLORS[0];
+        this._glow.set_style(`border-radius: ${this._glowRadius ?? 0}px; border-color: ${color};`);
     }
 
     _updateStyle() {
@@ -704,33 +732,48 @@ class Island extends St.Widget {
         this._aiEntry.set_text('');
         this._aiBusy = true;
         this._setGlow(true);
-        this._aiLog += `${this._aiLog ? '\n' : ''}› ${text}\n`;
-        this._aiShow('');
+        this._aiDots.setActive(true);
+
+        const question = new AiBubble(true);
+        question.setText(text);
+        this._aiThread.add_child(question);
+
+        this._aiAnswerText = '';
+        this._aiBubble = new AiBubble(false);
+        this._aiThread.add_child(this._aiBubble);
+        this._growAiThread();
 
         this._ai.ask(text,
-            token => this._aiShow(token),
+            token => this._appendAiToken(token),
             () => this._aiFinish(),
-            message => {
-                this._aiLog += `⚠ ${message}\n`;
-                this._aiFinish();
-            });
+            message => this._aiFail(message));
+    }
+
+    /** Ajoute un fragment à la bulle de réponse en cours, puis agrandit la pilule si besoin. */
+    _appendAiToken(fragment) {
+        this._aiAnswerText += fragment;
+        this._aiBubble.setText(this._aiAnswerText);
+        this._growAiThread();
+    }
+
+    _aiFail(message) {
+        this._appendAiToken(this._aiAnswerText ? `\n⚠ ${message}` : `⚠ ${message}`);
+        this._aiFinish();
     }
 
     _aiFinish() {
         this._aiBusy = false;
+        this._aiBubble = null;
         this._setGlow(false);
-        this._aiShow('\n');
+        this._aiDots.setActive(false);
     }
 
-    /** Ajoute un fragment au fil de réponse, puis agrandit la pilule si besoin. */
-    _aiShow(fragment) {
-        this._aiLog += fragment;
-        this._aiAnswer.text = this._aiLog;
+    _growAiThread() {
         if (this._state === State.AI)
             this._applyState(State.AI, false);
     }
 
-    /** Halo pulsant pendant que l'IA répond. */
+    /** Halo qui pulse en changeant de teinte, façon Siri, pendant que l'IA répond. */
     _setGlow(on) {
         this._glowing = on;
         this._glow.remove_all_transitions();
@@ -739,10 +782,14 @@ class Island extends St.Widget {
             return;
         }
 
+        let step = 0;
         const pulse = () => {
+            this._glowColor = SIRI_COLORS[step % SIRI_COLORS.length];
+            step++;
+            this._updateGlowStyle();
             this._glow.ease({
                 opacity: this._glow.opacity > 128 ? 40 : 255,
-                duration: this._duration(800),
+                duration: this._duration(700),
                 mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
                 onComplete: () => {
                     if (this._glowing)

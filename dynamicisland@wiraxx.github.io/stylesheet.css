@@ -333,12 +333,56 @@
     background-color: rgba(255, 255, 255, 0.1);
 }
 
-.di-ai-answer {
-    font-size: 12px;
-    padding: 2px 4px;
+.di-ai-header {
+    spacing: 6px;
 }
 
-/* Contour lumineux, sous le contenu : seul le bord est dessiné. */
+.di-ai-spark {
+    color: #ab73f5;
+}
+
+.di-ai-title {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.7;
+}
+
+/* Indicateur « en train de réfléchir » : trois points, façon Siri. */
+.di-ai-dots {
+    spacing: 4px;
+}
+
+.di-ai-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 3px;
+    background-color: #ab73f5;
+}
+
+.di-ai-thread {
+    spacing: 8px;
+}
+
+/* Bulles de conversation, à l'iMessage. */
+.di-ai-bubble {
+    border-radius: 14px;
+    padding: 6px 11px;
+    max-width: 85%;
+}
+
+.di-ai-bubble-user {
+    background-color: rgba(94, 151, 246, 0.9);
+}
+
+.di-ai-bubble-assistant {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.di-ai-bubble-text {
+    font-size: 12px;
+}
+
+/* Contour lumineux sous le contenu, qui change de teinte en répondant. */
 .di-ai-glow {
-    border: 2px solid rgba(120, 170, 255, 0.85);
+    border: 2px solid rgba(94, 151, 246, 0.85);
 }

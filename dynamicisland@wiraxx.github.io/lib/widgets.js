@@ -148,6 +148,74 @@ class Equalizer extends St.BoxLayout {
     }
 });
 
+/** Trois points qui s'allument à tour de rôle, façon indicateur Siri. */
+export const ThinkingDots = GObject.registerClass(
+class ThinkingDots extends St.BoxLayout {
+    _init() {
+        super._init({style_class: 'di-ai-dots', y_align: Clutter.ActorAlign.CENTER});
+
+        this._dots = [0, 1, 2].map(() => {
+            const dot = new St.Widget({style_class: 'di-ai-dot', opacity: 60});
+            this.add_child(dot);
+            return dot;
+        });
+        this._timeoutId = 0;
+        this._step = 0;
+        this.connect('destroy', () => this.setActive(false));
+    }
+
+    setActive(active) {
+        if (active === Boolean(this._timeoutId))
+            return;
+
+        if (!active) {
+            GLib.Source.remove(this._timeoutId);
+            this._timeoutId = 0;
+            this._dots.forEach(dot => {
+                dot.remove_all_transitions();
+                dot.opacity = 60;
+            });
+            return;
+        }
+
+        const tick = () => {
+            this._dots.forEach((dot, i) => {
+                dot.remove_all_transitions();
+                dot.ease({
+                    opacity: i === this._step ? 255 : 60,
+                    duration: 220,
+                    mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
+                });
+            });
+            this._step = (this._step + 1) % this._dots.length;
+            return GLib.SOURCE_CONTINUE;
+        };
+        tick();
+        this._timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 320, tick);
+    }
+});
+
+/** Bulle de conversation, à l'iMessage : alignée à gauche ou à droite. */
+export const AiBubble = GObject.registerClass(
+class AiBubble extends St.BoxLayout {
+    _init(fromUser) {
+        super._init({
+            style_class: `di-ai-bubble ${fromUser ? 'di-ai-bubble-user' : 'di-ai-bubble-assistant'}`,
+            x_align: fromUser ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
+            x_expand: true,
+        });
+
+        this._label = new St.Label({style_class: 'di-ai-bubble-text'});
+        this._label.clutter_text.line_wrap = true;
+        this._label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        this.add_child(this._label);
+    }
+
+    setText(text) {
+        this._label.text = text;
+    }
+});
+
 /** Icône + curseur, utilisé pour le volume et la luminosité. */
 export const SliderRow = GObject.registerClass({
     Signals: {
