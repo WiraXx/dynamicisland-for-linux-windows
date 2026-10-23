@@ -163,26 +163,13 @@ class Island extends St.Widget {
         this._aiEntry.clutter_text.connect('activate', () => this._aiSubmit());
         view.add_child(this._aiEntry);
 
-        this._aiAnswer = new St.Label({style_class: 'di-ai-answer', x_expand: true});
+        // Pas de St.ScrollView : son contrat d'enfant (St.Scrollable) varie trop
+        // d'une version de GNOME à l'autre. Comme le reste du panneau, le texte
+        // grandit normalement ; la hauteur maximale du panneau le borne déjà.
+        this._aiAnswer = new St.Label({style_class: 'di-ai-answer', x_expand: true, y_expand: true});
         this._aiAnswer.clutter_text.line_wrap = true;
         this._aiAnswer.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
-
-        this._aiScroll = new St.ScrollView({
-            style_class: 'di-ai-scroll',
-            x_expand: true,
-            y_expand: true,
-            overlay_scrollbars: true,
-            hscrollbar_policy: St.PolicyType.NEVER,
-            vscrollbar_policy: St.PolicyType.AUTOMATIC,
-        });
-        // Depuis GNOME 46, St.ScrollView n'accepte qu'un enfant St.Scrollable ;
-        // ni St.Label ni St.BoxLayout ne l'implémentent, il faut St.Viewport
-        // (absent avant GNOME 46, où le comportement précédent suffit).
-        const scrolled = typeof St.Viewport === 'function'
-            ? new St.Viewport({child: this._aiAnswer})
-            : this._aiAnswer;
-        this._aiScroll.set_child(scrolled);
-        view.add_child(this._aiScroll);
+        view.add_child(this._aiAnswer);
 
         return view;
     }
@@ -732,12 +719,6 @@ class Island extends St.Widget {
         this._aiAnswer.text = this._aiLog;
         if (this._state === State.AI)
             this._applyState(State.AI, false);
-
-        const adjustment = this._aiScroll.vadjustment;
-        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-            adjustment.value = adjustment.upper;
-            return GLib.SOURCE_REMOVE;
-        });
     }
 
     /** Halo pulsant pendant que l'IA répond. */
